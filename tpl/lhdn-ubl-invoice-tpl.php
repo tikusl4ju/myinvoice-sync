@@ -39,15 +39,36 @@ function lhdn_invoice_doc_ubl(string $invoiceNumber, array $params = []): array
     $industryClassificationCode = $params['industry_classification_code'] ?? '86909'; // Default MSIC code
     $industryClassificationName = LHDN_Helpers::get_msic_description($industryClassificationCode);
 
+    // Use provided buyer_id_type and buyer_id_value if available, otherwise fall back to TIN-based logic
+    $buyerIdType = $params['buyer_id_type'] ?? null;
+    $buyerIdValue = $params['buyer_id_value'] ?? null;
+    
     $buyerIdScheme = 'NRIC'; // default
-    if ($buyerTin === 'EI00000000020') {
+    if ($buyerIdType && $buyerIdValue) {
+      // Use provided values from user profile
+      $buyerIdScheme = $buyerIdType;
+      $buyerIdValue = $buyerIdValue;
+      $ItemClassificationCode = $params['item_classification_code'] ?? '008'; // Use provided classification code
+    } else if ($buyerTin === 'EI00000000020') {
+      // Fallback: Foreign customer
       $buyerIdScheme = 'PASSPORT';
       $buyerIdValue = 'P12345678'; // ID is a must for normal invoice
       $ItemClassificationCode = '008'; // eCommerce
-    }else if ($buyerTin === 'EI00000000010'){
+    } else if ($buyerTin === 'EI00000000010') {
+      // Fallback: Local customer without TIN
       $buyerIdScheme = 'NRIC';
       $buyerIdValue = 'NA';  // ID is a must for consilidation invoice
       $ItemClassificationCode = '004'; // Consilidation Invoice
+    } else {
+      // Default fallback for any other TIN
+      $buyerIdScheme = 'NRIC';
+      $buyerIdValue = 'NA';
+      $ItemClassificationCode = $params['item_classification_code'] ?? '004';
+    }
+    
+    // Ensure buyerIdValue is never empty (validation requirement)
+    if (empty($buyerIdValue)) {
+      $buyerIdValue = 'NA';
     }
 
     // TaxExemptionReason only when tax category is 'E'
