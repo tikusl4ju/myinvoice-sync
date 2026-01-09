@@ -383,8 +383,21 @@ class LHDN_WooCommerce {
             return;
         }
 
-        // Only check for logged-in users
+        // If user is not logged in, block checkout when enforcement applies
         if (!is_user_logged_in()) {
+            if (!$tin_enforce_enabled && $cart_total > 10000) {
+                // Guest, high-value purchase
+                wc_add_notice(
+                    __('Your purchase total exceeds 10,000 MYR. Please create an account and complete the TIN verification in your profile before checkout.', 'myinvoice-sync'),
+                    'error'
+                );
+            } elseif ($tin_enforce_enabled) {
+                // Global TIN enforcement, guest checkout
+                wc_add_notice(
+                    __('Please create an account and complete the TIN verification in your profile before checkout.', 'myinvoice-sync'),
+                    'error'
+                );
+            }
             return;
         }
 
