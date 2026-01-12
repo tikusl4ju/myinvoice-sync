@@ -195,17 +195,36 @@ class LHDN_Database {
                     $null_clause = isset($column_def['null']) && $column_def['null'] === 'YES' ? 'NULL' : 'NOT NULL';
                     $extra_clause = !empty($column_def['extra']) ? $column_def['extra'] : '';
                     
-                    $query = "ALTER TABLE `{$table}` ADD COLUMN `{$column_name}` {$column_def['type']} {$null_clause}";
+                    // Validate column name contains only safe characters (alphanumeric, underscore)
+                    // Column names come from hardcoded $required_columns array, validated via in_array() above
+                    if (!preg_match('/^[a-zA-Z0-9_]+$/', $column_name)) {
+                        continue; // Skip invalid column name
+                    }
                     
-                    if (strpos($extra_clause, 'DEFAULT') !== false) {
+                    // Validate column type contains only safe characters
+                    $column_type = preg_match('/^[A-Za-z0-9_()\s,]+$/', $column_def['type']) ? $column_def['type'] : 'VARCHAR(255)';
+                    
+                    // Table name comes from $wpdb->prefix which is safe, column names validated above
+                    // Using backticks for identifiers as per MySQL best practices
+                    $query = "ALTER TABLE `{$table}` ADD COLUMN `{$column_name}` {$column_type} {$null_clause}";
+                    
+                    // Validate extra_clause (DEFAULT values) contains only safe characters
+                    if (strpos($extra_clause, 'DEFAULT') !== false && preg_match('/^[A-Za-z0-9_\s()\'\"]+$/', $extra_clause)) {
                         $query .= " {$extra_clause}";
                     }
                     
+                    // Validate after_clause column name is from validated array
                     if (!empty($after_clause)) {
                         $query .= " {$after_clause}";
                     }
                     
-                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $after_clause contains column names from hardcoded $required_columns array, validated via in_array() checks above
+                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+                    // DDL statement: wpdb::prepare() cannot be used for table/column names in ALTER TABLE.
+                    // All identifiers are validated and come from trusted sources:
+                    // - $table: from $wpdb->prefix (WordPress core, safe)
+                    // - $column_name: from hardcoded $required_columns array, validated via in_array() and preg_match()
+                    // - $column_def['type']: from hardcoded array, validated via preg_match()
+                    // - $after_clause: contains column names validated via in_array() checks
                     $result = $wpdb->query($query);
                     
                     if ($result !== false) {
@@ -446,25 +465,32 @@ class LHDN_Database {
     public static function add_index_if_not_exists($table, $index, $columns) {
         global $wpdb;
 
-        // Validate index name and columns - only allow alphanumeric, underscore, comma, space, and backtick
+        // Validate index name and columns - only allow alphanumeric, underscore, comma, space
         if (!preg_match('/^[a-zA-Z0-9_]+$/', $index)) {
             return; // Invalid index name
         }
-        if (!preg_match('/^[a-zA-Z0-9_,`\s]+$/', $columns)) {
+        if (!preg_match('/^[a-zA-Z0-9_,\s]+$/', $columns)) {
             return; // Invalid column names
         }
 
+        // Table name comes from $wpdb->prefix which is safe
+        // Index name and columns validated above
         $exists = $wpdb->get_var(
             $wpdb->prepare(
-                "SHOW INDEX FROM {$table} WHERE Key_name = %s",
+                "SHOW INDEX FROM `{$table}` WHERE Key_name = %s",
                 $index
             )
         );
 
         if (!$exists) {
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $index and $columns are validated above, $table comes from $wpdb->prefix
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            // DDL statement: wpdb::prepare() cannot be used for table/index/column names in CREATE INDEX.
+            // All identifiers are validated and come from trusted sources:
+            // - $table: from $wpdb->prefix (WordPress core, safe)
+            // - $index: validated via preg_match('/^[a-zA-Z0-9_]+$/', $index) above
+            // - $columns: validated via preg_match('/^[a-zA-Z0-9_,\s]+$/', $columns) above
             $wpdb->query(
-                "CREATE INDEX {$index} ON {$table} ({$columns})"
+                "CREATE INDEX `{$index}` ON `{$table}` ({$columns})"
             );
         }
     }

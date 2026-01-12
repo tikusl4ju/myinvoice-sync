@@ -273,6 +273,9 @@ class LHDN_Invoice {
 
     /**
      * Cancel document
+     * 
+     * @param string $uuid Document UUID
+     * @return array|bool Returns array with 'success' and 'message' keys, or false on failure
      */
     public function cancel($uuid) {
         LHDN_Logger::log("Attempting cancel for {$uuid}");
@@ -281,7 +284,25 @@ class LHDN_Invoice {
         
         if (!$result || !$result['success']) {
             LHDN_Logger::log("Cancel rejected by LHDN");
-            return false;
+            
+            // Check for specific error: OperationPeriodOver
+            $error_message = '';
+            if (!empty($result['body'])) {
+                $error_data = json_decode($result['body'], true);
+                if (isset($error_data['error']['details']) && is_array($error_data['error']['details'])) {
+                    foreach ($error_data['error']['details'] as $detail) {
+                        if (isset($detail['code']) && $detail['code'] === 'OperationPeriodOver') {
+                            $error_message = 'time_limit_exceeded';
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            return [
+                'success' => false,
+                'message' => $error_message
+            ];
         }
 
         $this->db::update_invoice_by_uuid($uuid, [
@@ -291,7 +312,10 @@ class LHDN_Invoice {
         ]);
 
         LHDN_Logger::log("Document marked as cancelled locally");
-        return true;
+        return [
+            'success' => true,
+            'message' => 'Document cancelled successfully'
+        ];
     }
 
     /**

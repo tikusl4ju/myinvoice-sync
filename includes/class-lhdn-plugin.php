@@ -248,6 +248,7 @@ class LHDN_MyInvoice_Plugin {
         // Admin
         add_action('admin_menu', [$this->admin, 'add_menu']);
         add_action('admin_init', [$this->admin, 'admin_init']);
+        add_action('admin_enqueue_scripts', [$this->admin, 'enqueue_admin_scripts']);
         
         // Cron
         add_filter('cron_schedules', [$this->cron, 'register_schedules']);

@@ -76,11 +76,11 @@ class LHDN_Cron {
             return;
         }
         
-        if (get_transient(__FUNCTION__ . '_lock')) {
+        if (get_transient('lhdn_sync_submitted_invoices_lock')) {
             LHDN_Logger::log('Cron skipped (lock)');
             return;
         }
-        set_transient(__FUNCTION__ . '_lock', 1, 8 * MINUTE_IN_SECONDS);
+        set_transient('lhdn_sync_submitted_invoices_lock', 1, 8 * MINUTE_IN_SECONDS);
 
         global $wpdb;
 
@@ -94,7 +94,7 @@ class LHDN_Cron {
         );
 
         if (!$rows) {
-            delete_transient(__FUNCTION__ . '_lock');
+            delete_transient('lhdn_sync_submitted_invoices_lock');
             return;
         }
 
@@ -117,7 +117,7 @@ class LHDN_Cron {
             ($next ? wp_date('Y-m-d H:i:s', $next) : 'none')
         );
 
-        delete_transient(__FUNCTION__ . '_lock');
+        delete_transient('lhdn_sync_submitted_invoices_lock');
     }
 
     /**
@@ -129,11 +129,11 @@ class LHDN_Cron {
             return;
         }
         
-        if (get_transient(__FUNCTION__ . '_lock')) {
+        if (get_transient('lhdn_retry_err_invoices_lock')) {
             LHDN_Logger::log('Cron skipped (lock)');
             return;
         }
-        set_transient(__FUNCTION__ . '_lock', 1, 8 * MINUTE_IN_SECONDS);
+        set_transient('lhdn_retry_err_invoices_lock', 1, 8 * MINUTE_IN_SECONDS);
 
         global $wpdb;
 
@@ -147,7 +147,7 @@ class LHDN_Cron {
         );
 
         if (!$rows) {
-            delete_transient(__FUNCTION__ . '_lock');
+            delete_transient('lhdn_retry_err_invoices_lock');
             return;
         }
 
@@ -199,7 +199,7 @@ class LHDN_Cron {
             'Cron fired | next=' . ($next ? wp_date('Y-m-d H:i:s', $next) : 'none')
         );
 
-        delete_transient(__FUNCTION__ . '_lock');
+        delete_transient('lhdn_retry_err_invoices_lock');
     }
 
     /**
@@ -211,11 +211,11 @@ class LHDN_Cron {
             return;
         }
         
-        if (get_transient(__FUNCTION__ . '_lock')) {
+        if (get_transient('lhdn_process_queued_invoices_lock')) {
             LHDN_Logger::log('Cron skipped (lock)');
             return;
         }
-        set_transient(__FUNCTION__ . '_lock', 1, 8 * MINUTE_IN_SECONDS);
+        set_transient('lhdn_process_queued_invoices_lock', 1, 8 * MINUTE_IN_SECONDS);
 
         global $wpdb;
 
@@ -231,7 +231,7 @@ class LHDN_Cron {
         );
 
         if (empty($rows)) {
-            delete_transient(__FUNCTION__ . '_lock');
+            delete_transient('lhdn_process_queued_invoices_lock');
             return;
         }
 
@@ -366,7 +366,7 @@ class LHDN_Cron {
         }
         update_option('lhdn_last_delayed_cron_run', time());
 
-        delete_transient(__FUNCTION__ . '_lock');
+        delete_transient('lhdn_process_queued_invoices_lock');
     }
 }
 

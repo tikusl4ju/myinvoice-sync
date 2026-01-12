@@ -50,11 +50,17 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
     protected function get_search_query() {
         $table_id = $this->get_table_id();
         $search_key = 's_' . $table_id;
-        // phpcs:ignore WordPress.Security.NonceVerification.Missing, WordPress.Security.NonceVerification.Recommended -- GET/POST request for search, no data modification
+        
+        // Check nonce for POST requests (search form submission)
         if (isset($_POST[$search_key]) && !empty($_POST[$search_key])) {
-            // phpcs:ignore WordPress.Security.NonceVerification.Missing -- GET/POST request for search, no data modification
+            // Verify nonce for POST requests
+            if (isset($_POST['_wpnonce'])) {
+                if (!wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'])), 'lhdn_search_invoices')) {
+                    return ''; // Invalid nonce, return empty
+                }
+            }
             return sanitize_text_field(wp_unslash($_POST[$search_key]));
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- GET request for search, no data modification
+        // GET requests for search (URL parameters) - no nonce needed as they don't modify data
         } elseif (isset($_GET[$search_key]) && !empty($_GET[$search_key])) {
             // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- GET request for search, no data modification
             return sanitize_text_field(wp_unslash($_GET[$search_key]));
@@ -229,10 +235,14 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
         } else {
             $page_class = ' no-pages';
         }
-        $this->_pagination = "<div class='tablenav-pages{$page_class}'>$output</div>";
+        
+        // Escape HTML output properly
+        $escaped_page_class = esc_attr($page_class);
+        $escaped_output = wp_kses_post($output);
+        $this->_pagination = "<div class='tablenav-pages{$escaped_page_class}'>{$escaped_output}</div>";
 
-        // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- $output is built from WordPress functions that already escape
-        echo $this->_pagination;
+        // Output is now properly escaped
+        echo $this->_pagination; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Output is escaped above with wp_kses_post()
     }
 
     public function search_box($text, $input_id) {
@@ -271,6 +281,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
         }
         ?>
         <form method="get" action="">
+            <?php wp_nonce_field('lhdn_search_invoices', '_wpnonce'); ?>
             <input type="hidden" name="page" value="myinvoice-sync-invoices">
             <?php if (!empty($orderby)) : ?>
                 <input type="hidden" name="orderby" value="<?php echo esc_attr($orderby); ?>" />
@@ -587,6 +598,107 @@ class LHDN_Admin {
         );
 
         remove_submenu_page('myinvoice-sync', 'myinvoice-sync');
+    }
+
+    /**
+     * Enqueue admin scripts
+     */
+    public function enqueue_admin_scripts($hook) {
+        // Only load on our plugin pages
+        if (strpos($hook, 'myinvoice-sync') === false) {
+            return;
+        }
+
+        // Enqueue jQuery (required for inline scripts)
+        wp_enqueue_script('jquery');
+
+        // Get current page
+        $page = isset($_GET['page']) ? sanitize_text_field(wp_unslash($_GET['page'])) : '';
+
+        // Script 1: PEM certificate reset (settings page only)
+        if ($page === 'myinvoice-sync-settings') {
+            global $wpdb;
+            $cert_table = $wpdb->prefix . 'lhdn_cert';
+            $current_cert = $wpdb->get_row("SELECT id FROM {$cert_table} WHERE is_active = 1 LIMIT 1");
+            
+            if ($current_cert) {
+                $reset_script = "document.addEventListener('DOMContentLoaded', function() {
+                    var resetBtn = document.querySelector('button[onclick*=\"reset_cert_form\"]');
+                    if (resetBtn) {
+                        resetBtn.onclick = function() {
+                            if (confirm('Are you sure you want to reset the certificate? This will delete all PEM certificate records and set UBL version back to 1.0.')) {
+                                document.getElementById('reset_cert_form').submit();
+                            }
+                            return false;
+                        };
+                    }
+                });";
+                wp_add_inline_script('jquery', $reset_script);
+            }
+
+            // Script 2: Database clear confirmation (settings page only)
+            $record_count = 0;
+            $table = $wpdb->prefix . 'lhdn_myinvoice';
+            if ($wpdb->get_var("SHOW TABLES LIKE '{$table}'") === $table) {
+                $record_count = (int) $wpdb->get_var("SELECT COUNT(*) FROM {$table}");
+            }
+            
+            $clear_script = "document.addEventListener('DOMContentLoaded', function() {
+                var clearForm = document.getElementById('clear_database_form');
+                if (clearForm) {
+                    clearForm.addEventListener('submit', function(e) {
+                        var recordCount = " . absint($record_count) . ";
+                        var confirmation = prompt('FINAL WARNING: This will DELETE ALL ' + recordCount + ' invoice records!\\n\\nType \"DELETE ALL\" (in uppercase) to confirm:');
+                        if (confirmation !== 'DELETE ALL') {
+                            e.preventDefault();
+                            alert('Database clear cancelled.');
+                            return false;
+                        }
+                    });
+                }
+            });";
+            wp_add_inline_script('jquery', $clear_script);
+        }
+
+        // Script 3: Live logs AJAX (invoices page only, if debug enabled)
+        if ($page === 'myinvoice-sync-invoices' && LHDN_Settings::get('debug_enabled')) {
+            // Localize script to pass ajaxurl
+            wp_localize_script('jquery', 'lhdnAjax', array(
+                'ajaxurl' => admin_url('admin-ajax.php'),
+            ));
+            
+            $logs_script = "(function() {
+                function loadLhdnLogs() {
+                    var ajaxUrl = (typeof lhdnAjax !== 'undefined' && lhdnAjax.ajaxurl) ? lhdnAjax.ajaxurl : (typeof ajaxurl !== 'undefined' ? ajaxurl : '" . esc_js(admin_url('admin-ajax.php')) . "');
+                    fetch(ajaxUrl + '?action=lhdn_get_logs')
+                        .then(function(r) { return r.json(); })
+                        .then(function(d) {
+                            var logEl = document.getElementById('log');
+                            if (logEl && Array.isArray(d)) {
+                                logEl.innerHTML = d.join('<br>');
+                            }
+                        })
+                        .catch(function(err) {
+                            console.error('LHDN Logs Error:', err);
+                        });
+                }
+                
+                function initLogs() {
+                    var logEl = document.getElementById('log');
+                    if (logEl) {
+                        loadLhdnLogs();
+                        setInterval(loadLhdnLogs, 5000);
+                    }
+                }
+                
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', initLogs);
+                } else {
+                    initLogs();
+                }
+            })();";
+            wp_add_inline_script('jquery', $logs_script);
+        }
     }
 
     /**
@@ -975,8 +1087,17 @@ class LHDN_Admin {
             check_admin_referer('lhdn_restore_database');
             
             if (isset($_FILES['backup_file']['error']) && $_FILES['backup_file']['error'] === UPLOAD_ERR_OK) {
-                // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- File is validated and sanitized in import_database_from_csv() method
-                $backup_file = isset($_FILES['backup_file']) ? $_FILES['backup_file'] : array();
+                // Sanitize $_FILES array
+                $backup_file = array();
+                if (isset($_FILES['backup_file'])) {
+                    $backup_file = array(
+                        'name' => isset($_FILES['backup_file']['name']) ? sanitize_file_name(wp_unslash($_FILES['backup_file']['name'])) : '',
+                        'type' => isset($_FILES['backup_file']['type']) ? sanitize_mime_type(wp_unslash($_FILES['backup_file']['type'])) : '',
+                        'tmp_name' => isset($_FILES['backup_file']['tmp_name']) ? sanitize_text_field(wp_unslash($_FILES['backup_file']['tmp_name'])) : '',
+                        'error' => isset($_FILES['backup_file']['error']) ? absint($_FILES['backup_file']['error']) : UPLOAD_ERR_NO_FILE,
+                        'size' => isset($_FILES['backup_file']['size']) ? absint($_FILES['backup_file']['size']) : 0,
+                    );
+                }
                 $result = $this->import_database_from_csv($backup_file);
                 if ($result['success']) {
                     echo '<div class="updated"><p>' . esc_html($result['message']) . '</p></div>';
@@ -1714,19 +1835,6 @@ class LHDN_Admin {
                     <?php wp_nonce_field('lhdn_reset_cert'); ?>
                     <input type="hidden" name="reset_certificate" value="1">
                 </form>
-                <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    var resetBtn = document.querySelector('button[onclick*="reset_cert_form"]');
-                    if (resetBtn) {
-                        resetBtn.onclick = function() {
-                            if (confirm('Are you sure you want to reset the certificate? This will delete all PEM certificate records and set UBL version back to 1.0.')) {
-                                document.getElementById('reset_cert_form').submit();
-                            }
-                            return false;
-                        };
-                    }
-                });
-                </script>
             <?php endif; ?>
 
             <hr>
@@ -1797,22 +1905,6 @@ class LHDN_Admin {
                         Clear Database
                     </button>
                 </form>
-                <script>
-                document.addEventListener('DOMContentLoaded', function() {
-                    var clearForm = document.getElementById('clear_database_form');
-                    if (clearForm) {
-                        clearForm.addEventListener('submit', function(e) {
-                            var recordCount = <?php echo (int)$record_count; ?>;
-                            var confirmation = prompt('FINAL WARNING: This will DELETE ALL ' + recordCount + ' invoice records!\n\nType "DELETE ALL" (in uppercase) to confirm:');
-                            if (confirmation !== 'DELETE ALL') {
-                                e.preventDefault();
-                                alert('Database clear cancelled.');
-                                return false;
-                            }
-                        });
-                    }
-                });
-                </script>
             </div>
 
             <div class="card" style="max-width: 800px; padding: 15px; margin: 20px 0; border-left: 4px solid #2271b1;">
@@ -2299,7 +2391,17 @@ class LHDN_Admin {
 
         if (isset($_POST['cancel_uuid'])) {
             check_admin_referer('lhdn_cancel_action', 'lhdn_cancel_nonce');
-            $this->invoice->cancel(sanitize_text_field(wp_unslash($_POST['cancel_uuid'])));
+            $cancel_result = $this->invoice->cancel(sanitize_text_field(wp_unslash($_POST['cancel_uuid'])));
+            
+            if (is_array($cancel_result) && !$cancel_result['success']) {
+                if ($cancel_result['message'] === 'time_limit_exceeded') {
+                    echo '<div class="notice notice-error"><p><strong>' . esc_html__('Cancel Rejected', 'myinvoice-sync') . ':</strong> ' . esc_html__('Cancel has been rejected by LHDN due to cancellation limit time has exceeded. Please issue Credit Note instead.', 'myinvoice-sync') . '</p></div>';
+                } else {
+                    echo '<div class="notice notice-error"><p><strong>' . esc_html__('Cancel Rejected', 'myinvoice-sync') . ':</strong> ' . esc_html__('Cancel has been rejected by LHDN.', 'myinvoice-sync') . '</p></div>';
+                }
+            } elseif (is_array($cancel_result) && $cancel_result['success']) {
+                echo '<div class="notice notice-success"><p>' . esc_html__('Document cancelled successfully.', 'myinvoice-sync') . '</p></div>';
+            }
         }
 
         if (isset($_POST['sync_uuid'])) {
@@ -2394,18 +2496,6 @@ class LHDN_Admin {
                       <button class="button" name="clear_logs">Clear Logs</button>
                   </form>
                 </span>
-                <script>
-                function loadLhdnLogs() {
-                    fetch(ajaxurl + '?action=lhdn_get_logs')
-                        .then(r => r.json())
-                        .then(d => {
-                            document.getElementById('log').innerHTML = d.join('<br>');
-                        });
-                }
-
-                loadLhdnLogs();
-                setInterval(loadLhdnLogs, 5000);
-                </script>
             <?php endif; ?>
         </div>
         <?php
