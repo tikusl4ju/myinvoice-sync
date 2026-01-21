@@ -77,7 +77,6 @@ The MyInvoice Sync plugin automatically generates and submits invoices to the LH
 - **Automatic Credit Note on Refund**: Automatically generates credit notes when WooCommerce refunds are processed
 - **Full Credit Support**: Supports full credit notes (all items refunded)
 - **Duplicate Prevention**: Prevents duplicate credit notes for the same invoice
-- **Works with Test Invoices**: Credit notes can be created even for test invoices without WooCommerce orders
 
 ## Installation
 
@@ -199,7 +198,7 @@ From the WooCommerce Orders list:
 When processing a refund in WooCommerce:
 1. Navigate to **WooCommerce > Orders**
 2. Open an order that has a submitted invoice
-3. Process a refund (full or partial)
+3. Process a refund
 4. The plugin automatically:
    - Detects the refund action
    - Creates a credit note for the original invoice

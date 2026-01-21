@@ -439,7 +439,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
 
         <div style="display: flex; gap: 4px; flex-wrap: wrap; align-items: center;">
         <?php if ($item->uuid && $item->status !== 'cancelled' && $item->status !== 'invalid' && $item->status !== 'failed'): ?>
-            <form method="post" action="" style="display:inline; margin: 0;">
+            <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to cancel this invoice? This action will be sent to LHDN.', 'myinvoice-sync')); ?>');">
                 <input type="hidden" name="page" value="myinvoice-sync-invoices">
                 <?php wp_nonce_field('lhdn_cancel_action', 'lhdn_cancel_nonce'); ?>
                 <input type="hidden" name="cancel_uuid" value="<?php echo esc_attr($item->uuid); ?>">
@@ -463,7 +463,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
             in_array($item->status, ['submitted', 'valid'], true) &&
             strpos($item->invoice_no, 'CN-') !== 0
         ) : ?>
-            <form method="post" action="" style="display:inline; margin: 0;">
+            <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to create a credit note for this invoice? This will be submitted to LHDN.', 'myinvoice-sync')); ?>');">
                 <input type="hidden" name="page" value="myinvoice-sync-invoices">
                 <?php wp_nonce_field('lhdn_credit_note_action', 'lhdn_credit_note_nonce'); ?>
                 <input type="hidden" name="credit_note_invoice_no" value="<?php echo esc_attr($item->invoice_no); ?>">

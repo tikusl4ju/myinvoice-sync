@@ -217,19 +217,27 @@ class LHDN_Database {
                     $query = "ALTER TABLE `{$safe_table}` ADD COLUMN `{$safe_column_name}` {$column_type} {$null_clause}";
                     
                     // Validate extra_clause (DEFAULT values) contains only safe characters
-                    if (strpos($extra_clause, 'DEFAULT') !== false && preg_match('/^[A-Za-z0-9_\s()\'\"]+$/', $extra_clause)) {
-                        $query .= " {$extra_clause}";
+                    $safe_extra_clause = '';
+                    if (!empty($extra_clause) && strpos($extra_clause, 'DEFAULT') !== false && preg_match('/^[A-Za-z0-9_\s()\'\"]+$/', $extra_clause)) {
+                        $safe_extra_clause = $extra_clause;
+                    }
+                    if (!empty($safe_extra_clause)) {
+                        $query .= " {$safe_extra_clause}";
                     }
                     
                     // Validate after_clause column name is from validated array
+                    $safe_after_clause = '';
                     if (!empty($after_clause)) {
                         // Extract and validate column name from AFTER clause
                         if (preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $after_clause, $matches)) {
                             $after_column = esc_sql($matches[1]);
                             if (in_array($matches[1], $existing_column_names) || in_array($matches[1], array_keys($required_columns))) {
-                                $query .= " AFTER `{$after_column}`";
+                                $safe_after_clause = "AFTER `{$after_column}`";
                             }
                         }
+                    }
+                    if (!empty($safe_after_clause)) {
+                        $query .= " {$safe_after_clause}";
                     }
                     
                     // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter

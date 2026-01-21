@@ -249,12 +249,12 @@ class LHDN_WooCommerce {
 
         // Check permissions
         if (!current_user_can('manage_woocommerce')) {
-            wp_die(__('You do not have permission to perform this action.', 'myinvoice-sync'));
+            wp_die(esc_html__('You do not have permission to perform this action.', 'myinvoice-sync'));
         }
-
+        
         // Check nonce
         if (!isset($_REQUEST['_wpnonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_REQUEST['_wpnonce'])), 'bulk-orders')) {
-            wp_die(__('Security check failed.', 'myinvoice-sync'));
+            wp_die(esc_html__('Security check failed.', 'myinvoice-sync'));
         }
 
         if (!LHDN_Settings::is_plugin_active()) {
@@ -552,7 +552,34 @@ class LHDN_WooCommerce {
         global $wpdb;
 
         $invoice_no = $order->get_order_number();
+        $order_status = $order->get_status(); // e.g. 'completed', 'refunded'
 
+        // If order is refunded, try to show Credit Note receipt instead
+        if ($order_status === 'refunded') {
+            $cn_invoice_no = 'CN-' . $invoice_no;
+
+            $cn_row = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT uuid, longid, status
+                     FROM {$wpdb->prefix}lhdn_myinvoice
+                     WHERE invoice_no = %s
+                     LIMIT 1",
+                    $cn_invoice_no
+                )
+            );
+
+            if ($cn_row && $cn_row->uuid && $cn_row->longid) {
+                $cn_url = LHDN_HOST . '/' . $cn_row->uuid . '/share/' . $cn_row->longid;
+                printf(
+                    '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>',
+                    esc_url($cn_url),
+                    esc_html__('View Credit Note', 'myinvoice-sync')
+                );
+                return;
+            }
+        }
+
+        // Fallback: show original invoice receipt
         $row = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT uuid, longid, status
