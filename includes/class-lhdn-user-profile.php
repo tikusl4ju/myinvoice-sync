@@ -129,16 +129,30 @@ class LHDN_User_Profile {
             return;
         }
 
-        if (!$this->verify_nonce()) {
-            LHDN_Logger::log('LHDN nonce verification failed');
+        // Verify nonce - required for security
+        // Check for custom plugin nonce first
+        if (isset($_POST['lhdn_nonce'])) {
+            $nonce = sanitize_text_field(wp_unslash($_POST['lhdn_nonce']));
+            if (!wp_verify_nonce($nonce, 'lhdn_user_profile') && !wp_verify_nonce($nonce, 'lhdn_myaccount')) {
+                LHDN_Logger::log('LHDN nonce verification failed');
+                return;
+            }
+        } elseif (isset($_POST['_wpnonce'])) {
+            // Check for WordPress standard profile update nonce
+            $nonce = sanitize_text_field(wp_unslash($_POST['_wpnonce']));
+            if (!wp_verify_nonce($nonce, 'update-user_' . $user_id)) {
+                LHDN_Logger::log('LHDN nonce verification failed (WordPress nonce)');
+                return;
+            }
+        } else {
+            // No nonce found - reject request
+            LHDN_Logger::log('LHDN nonce verification failed (no nonce found)');
             return;
         }
 
-        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verified in verify_nonce() method above
+        // Nonce verified above, safe to access $_POST
         $tin      = isset($_POST['lhdn_tin']) ? sanitize_text_field(wp_unslash($_POST['lhdn_tin'])) : '';
-        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verified in verify_nonce() method above
         $id_type  = isset($_POST['lhdn_id_type']) ? sanitize_text_field(wp_unslash($_POST['lhdn_id_type'])) : '';
-        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verified in verify_nonce() method above
         $id_value = isset($_POST['lhdn_id_value']) ? sanitize_text_field(wp_unslash($_POST['lhdn_id_value'])) : '';
 
         if ($tin === '' && $id_type === '' && $id_value === '') {
@@ -326,6 +340,23 @@ class LHDN_User_Profile {
         }
 
         $user_id = get_current_user_id();
+        
+        // Check if user's country is Malaysia - hide badge if not
+        $billing_country = '';
+        if (function_exists('WC') && WC()->customer) {
+            // Try to get from WooCommerce customer object first (checkout session)
+            $billing_country = WC()->customer->get_billing_country();
+        }
+        
+        // Fallback to user meta if not available from customer object
+        if (empty($billing_country)) {
+            $billing_country = get_user_meta($user_id, 'billing_country', true);
+        }
+        
+        // Only show badge if country is Malaysia (MY)
+        if (!empty($billing_country) && $billing_country !== 'MY') {
+            return;
+        }
 
         $tin      = get_user_meta($user_id, 'lhdn_tin', true);
         $status   = get_user_meta($user_id, 'lhdn_tin_validation', true);
@@ -357,7 +388,7 @@ class LHDN_User_Profile {
         }
         ?>
 
-        <div class="lhdn-tin-status"
+        <div class="lhdn-tin-status" id="lhdn-tin-status-badge"
              style="margin-bottom:20px;padding:12px 15px;border-left:5px solid <?php echo esc_attr($color); ?>;background:#f9f9f9;">
             <strong>
                 LHDN TIN Status:

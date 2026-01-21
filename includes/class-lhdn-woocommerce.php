@@ -368,6 +368,33 @@ class LHDN_WooCommerce {
      * and if user has valid TIN
      */
     public function validate_tin_on_checkout() {
+        // Get billing country - TIN Enforce only applies to Malaysian users
+        $billing_country = '';
+        
+        // Try to get from POST data first (checkout form submission)
+        if (isset($_POST['billing_country']) && !empty($_POST['billing_country'])) {
+            $billing_country = sanitize_text_field(wp_unslash($_POST['billing_country']));
+        }
+        
+        // Fallback to WooCommerce customer object
+        if (empty($billing_country) && function_exists('WC') && WC()->customer) {
+            $billing_country = WC()->customer->get_billing_country();
+        }
+        
+        // Fallback to user meta for logged-in users
+        if (empty($billing_country) && is_user_logged_in()) {
+            $user_id = get_current_user_id();
+            if ($user_id) {
+                $billing_country = get_user_meta($user_id, 'billing_country', true);
+            }
+        }
+        
+        // Only enforce TIN for Malaysian users (MY)
+        // If country is set and not Malaysia, skip TIN enforcement
+        if (!empty($billing_country) && $billing_country !== 'MY') {
+            return;
+        }
+        
         // Check if TIN Enforce setting is enabled
         $tin_enforce_enabled = (LHDN_Settings::get('tin_enforce', '0') === '1');
         

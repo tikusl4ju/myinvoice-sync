@@ -291,6 +291,9 @@ class LHDN_MyInvoice_Plugin {
         add_action('woocommerce_save_account_details', [$this->user_profile, 'save_myaccount_fields'], 20);
         add_action('woocommerce_before_checkout_form', [$this->user_profile, 'show_tin_status_badge']);
         
+        // Frontend scripts (checkout)
+        add_action('wp_enqueue_scripts', [$this, 'enqueue_checkout_scripts']);
+        
         // AJAX
         add_action('wp_ajax_lhdn_get_logs', [$this, 'ajax_get_logs']);
         add_action('wp_ajax_lhdn_submit_order', [$this, 'ajax_submit_order']);
@@ -326,6 +329,56 @@ class LHDN_MyInvoice_Plugin {
      */
     public function ajax_get_logs() {
         wp_send_json(get_option('lhdn_logs', []));
+    }
+
+    /**
+     * Enqueue checkout scripts
+     */
+    public function enqueue_checkout_scripts() {
+        // Only load on checkout page
+        if (!function_exists('is_checkout') || !is_checkout()) {
+            return;
+        }
+
+        // Ensure jQuery is loaded
+        wp_enqueue_script('jquery');
+        
+        // Add inline script to handle country change
+        $script = "(function($) {
+            function toggleTinBadge() {
+                var \$badge = $('#lhdn-tin-status-badge');
+                if (\$badge.length === 0) {
+                    return; // Badge not present
+                }
+                
+                // Get selected country
+                var country = $('#billing_country').val() || '';
+                
+                // Hide badge if country is not Malaysia (MY)
+                if (country && country !== 'MY') {
+                    \$badge.hide();
+                } else {
+                    \$badge.show();
+                }
+            }
+            
+            // Run on page load
+            $(document).ready(function() {
+                toggleTinBadge();
+                
+                // Listen for country field changes
+                $(document.body).on('change', '#billing_country', function() {
+                    toggleTinBadge();
+                });
+                
+                // Also listen for WooCommerce checkout update event (after AJAX)
+                $(document.body).on('updated_checkout', function() {
+                    toggleTinBadge();
+                });
+            });
+        })(jQuery);";
+        
+        wp_add_inline_script('jquery', $script);
     }
 
     /**

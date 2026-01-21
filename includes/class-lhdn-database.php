@@ -103,6 +103,9 @@ class LHDN_Database {
         
         try {
             // Get existing columns
+            // Table name comes from $wpdb->prefix (WordPress core, trusted)
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            // DESCRIBE is a DDL statement - table name from $wpdb->prefix is safe
             $existing_columns = $wpdb->get_results("DESCRIBE {$table}", ARRAY_A);
             
             if (empty($existing_columns)) {
@@ -204,9 +207,14 @@ class LHDN_Database {
                     // Validate column type contains only safe characters
                     $column_type = preg_match('/^[A-Za-z0-9_()\s,]+$/', $column_def['type']) ? $column_def['type'] : 'VARCHAR(255)';
                     
+                    // Validate and escape identifiers for DDL statement
+                    // esc_sql() is acceptable for DDL identifiers where prepare() cannot be used
+                    $safe_table = esc_sql($table);
+                    $safe_column_name = esc_sql($column_name);
+                    
                     // Table name comes from $wpdb->prefix which is safe, column names validated above
                     // Using backticks for identifiers as per MySQL best practices
-                    $query = "ALTER TABLE `{$table}` ADD COLUMN `{$column_name}` {$column_type} {$null_clause}";
+                    $query = "ALTER TABLE `{$safe_table}` ADD COLUMN `{$safe_column_name}` {$column_type} {$null_clause}";
                     
                     // Validate extra_clause (DEFAULT values) contains only safe characters
                     if (strpos($extra_clause, 'DEFAULT') !== false && preg_match('/^[A-Za-z0-9_\s()\'\"]+$/', $extra_clause)) {
@@ -215,16 +223,23 @@ class LHDN_Database {
                     
                     // Validate after_clause column name is from validated array
                     if (!empty($after_clause)) {
-                        $query .= " {$after_clause}";
+                        // Extract and validate column name from AFTER clause
+                        if (preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $after_clause, $matches)) {
+                            $after_column = esc_sql($matches[1]);
+                            if (in_array($matches[1], $existing_column_names) || in_array($matches[1], array_keys($required_columns))) {
+                                $query .= " AFTER `{$after_column}`";
+                            }
+                        }
                     }
                     
                     // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
                     // DDL statement: wpdb::prepare() cannot be used for table/column names in ALTER TABLE.
-                    // All identifiers are validated and come from trusted sources:
-                    // - $table: from $wpdb->prefix (WordPress core, safe)
-                    // - $column_name: from hardcoded $required_columns array, validated via in_array() and preg_match()
-                    // - $column_def['type']: from hardcoded array, validated via preg_match()
-                    // - $after_clause: contains column names validated via in_array() checks
+                    // MySQL does not support placeholders for identifiers (table/column names) in DDL statements.
+                    // All identifiers are validated via regex and escaped using esc_sql():
+                    // - $safe_table: from $wpdb->prefix (WordPress core), escaped with esc_sql()
+                    // - $safe_column_name: from hardcoded array, validated via regex, escaped with esc_sql()
+                    // - $column_type: validated via regex
+                    // - AFTER clause: column name validated via regex and in_array(), escaped with esc_sql()
                     $result = $wpdb->query($query);
                     
                     if ($result !== false) {
@@ -261,6 +276,9 @@ class LHDN_Database {
         
         try {
             // Get existing columns with their details
+            // Table name comes from $wpdb->prefix (WordPress core, trusted)
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            // DESCRIBE is a DDL statement - table name from $wpdb->prefix is safe
             $existing_columns = $wpdb->get_results("DESCRIBE {$table}", ARRAY_A);
             
             if (empty($existing_columns)) {
@@ -397,22 +415,72 @@ class LHDN_Database {
                         $after_clause = '';
                     }
                     
+                    // Validate column name contains only safe characters (alphanumeric, underscore)
+                    // Column names come from hardcoded $required_columns array, validated via in_array() above
+                    if (!preg_match('/^[a-zA-Z0-9_]+$/', $column_name)) {
+                        continue; // Skip invalid column name
+                    }
+                    
+                    // Validate column type contains only safe characters
+                    $column_type = preg_match('/^[A-Za-z0-9_()\s,]+$/', $column_def['type']) ? $column_def['type'] : 'VARCHAR(255)';
+                    
                     $null_clause = isset($column_def['null']) && $column_def['null'] === 'YES' ? 'NULL' : 'NOT NULL';
                     $extra_clause = !empty($column_def['extra']) ? $column_def['extra'] : '';
                     
-                    // Build the query
-                    $query = "ALTER TABLE `{$table}` ADD COLUMN `{$column_name}` {$column_def['type']} {$null_clause}";
-                    
-                    // Handle DEFAULT values
-                    if (strpos($extra_clause, 'DEFAULT') !== false) {
-                        $query .= " {$extra_clause}";
+                    // Validate extra_clause (DEFAULT values) contains only safe characters
+                    $safe_extra_clause = '';
+                    if (!empty($extra_clause) && strpos($extra_clause, 'DEFAULT') !== false) {
+                        if (preg_match('/^DEFAULT\s+[\'"0-9]+$/', $extra_clause)) {
+                            $safe_extra_clause = $extra_clause;
+                        }
                     }
                     
+                    // Validate after_clause column name is from validated array
+                    $safe_after_clause = '';
                     if (!empty($after_clause)) {
-                        $query .= " {$after_clause}";
+                        // Extract column name from AFTER clause and validate
+                        if (preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $after_clause, $matches)) {
+                            $after_column = $matches[1];
+                            if (in_array($after_column, $existing_column_names) || in_array($after_column, array_keys($required_columns))) {
+                                $safe_after_clause = $after_clause;
+                            }
+                        }
                     }
                     
-                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- $after_clause contains column names from hardcoded $required_columns array, validated via in_array() checks above
+                    // Validate and escape identifiers for DDL statement
+                    // esc_sql() is acceptable for DDL identifiers where prepare() cannot be used
+                    $safe_table = esc_sql($table);
+                    $safe_column_name = esc_sql($column_name);
+                    
+                    // Build the query using only validated/whitelisted identifiers
+                    // Table name comes from $wpdb->prefix (WordPress core, trusted)
+                    // Column names validated above via regex and in_array() checks
+                    $query = "ALTER TABLE `{$safe_table}` ADD COLUMN `{$safe_column_name}` {$column_type} {$null_clause}";
+                    
+                    if (!empty($safe_extra_clause)) {
+                        $query .= " {$safe_extra_clause}";
+                    }
+                    
+                    // Validate and escape AFTER clause column name
+                    if (!empty($safe_after_clause)) {
+                        // Extract column name from AFTER clause and escape it
+                        if (preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $safe_after_clause, $matches)) {
+                            $after_column = esc_sql($matches[1]);
+                            if (in_array($matches[1], $existing_column_names) || in_array($matches[1], array_keys($required_columns))) {
+                                $query .= " AFTER `{$after_column}`";
+                            }
+                        }
+                    }
+                    
+                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+                    // DDL statement: wpdb::prepare() cannot be used for table/column names in ALTER TABLE.
+                    // MySQL does not support placeholders for identifiers (table/column names) in DDL statements.
+                    // All identifiers are validated via regex and escaped using esc_sql():
+                    // - $safe_table: from $wpdb->prefix (WordPress core), escaped with esc_sql()
+                    // - $safe_column_name: from hardcoded array, validated via regex, escaped with esc_sql()
+                    // - $column_type: validated via regex
+                    // - AFTER clause: column name validated via regex and in_array(), escaped with esc_sql()
+                    // - $safe_extra_clause: validated via regex
                     $result = $wpdb->query($query);
                     
                     if ($result !== false) {
@@ -433,7 +501,12 @@ class LHDN_Database {
                             );
                             
                             if (!$unique_exists) {
-                                $wpdb->query("ALTER TABLE `{$table}` ADD UNIQUE (`{$column_name}`)");
+                                // Validate column name is safe (already validated above)
+                                if (preg_match('/^[a-zA-Z0-9_]+$/', $column_name)) {
+                                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+                                    // DDL statement: $table from $wpdb->prefix, $column_name validated above
+                                    $wpdb->query("ALTER TABLE `{$table}` ADD UNIQUE (`{$column_name}`)");
+                                }
                             }
                         }
                     } else {
@@ -473,6 +546,21 @@ class LHDN_Database {
             return; // Invalid column names
         }
 
+        // Further validate: split columns and validate each one individually
+        $column_list = array_map('trim', explode(',', $columns));
+        $valid_columns = array();
+        foreach ($column_list as $col) {
+            if (preg_match('/^[a-zA-Z0-9_]+$/', $col)) {
+                $valid_columns[] = $col;
+            }
+        }
+        
+        if (empty($valid_columns)) {
+            return; // No valid columns
+        }
+        
+        $safe_columns = implode(', ', $valid_columns);
+
         // Table name comes from $wpdb->prefix which is safe
         // Index name and columns validated above
         $exists = $wpdb->get_var(
@@ -483,14 +571,27 @@ class LHDN_Database {
         );
 
         if (!$exists) {
+            // Validate and escape identifiers for DDL statement
+            // esc_sql() is acceptable for DDL identifiers where prepare() cannot be used
+            $safe_table = esc_sql($table);
+            $safe_index = esc_sql($index);
+            
+            // Escape each column name individually
+            $escaped_columns = array();
+            foreach ($valid_columns as $col) {
+                $escaped_columns[] = esc_sql($col);
+            }
+            $safe_columns_list = implode(', ', $escaped_columns);
+            
             // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
             // DDL statement: wpdb::prepare() cannot be used for table/index/column names in CREATE INDEX.
-            // All identifiers are validated and come from trusted sources:
-            // - $table: from $wpdb->prefix (WordPress core, safe)
-            // - $index: validated via preg_match('/^[a-zA-Z0-9_]+$/', $index) above
-            // - $columns: validated via preg_match('/^[a-zA-Z0-9_,\s]+$/', $columns) above
+            // MySQL does not support placeholders for identifiers (table/index/column names) in DDL statements.
+            // All identifiers are validated via regex and escaped using esc_sql():
+            // - $safe_table: from $wpdb->prefix (WordPress core, trusted source), escaped with esc_sql()
+            // - $safe_index: validated via preg_match('/^[a-zA-Z0-9_]+$/', $index) above, escaped with esc_sql()
+            // - $safe_columns_list: each column validated individually via preg_match() and escaped with esc_sql()
             $wpdb->query(
-                "CREATE INDEX `{$index}` ON `{$table}` ({$columns})"
+                "CREATE INDEX `{$safe_index}` ON `{$safe_table}` ({$safe_columns_list})"
             );
         }
     }
@@ -622,6 +723,9 @@ class LHDN_Database {
             }
             
             // Get existing columns
+            // Table name comes from $wpdb->prefix (WordPress core, trusted)
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            // DESCRIBE is a DDL statement - table name from $wpdb->prefix is safe
             $existing_columns = $wpdb->get_col("DESCRIBE {$full_table_name}");
             
             // Check each required column

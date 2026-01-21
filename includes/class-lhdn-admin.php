@@ -53,16 +53,15 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
         
         // Check nonce for POST requests (search form submission)
         if (isset($_POST[$search_key]) && !empty($_POST[$search_key])) {
-            // Verify nonce for POST requests
-            if (isset($_POST['_wpnonce'])) {
-                if (!wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'])), 'lhdn_search_invoices')) {
-                    return ''; // Invalid nonce, return empty
-                }
+            // Verify nonce for POST requests - required for security
+            if (!isset($_POST['_wpnonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'])), 'lhdn_search_invoices')) {
+                return ''; // Invalid or missing nonce, return empty
             }
             return sanitize_text_field(wp_unslash($_POST[$search_key]));
         // GET requests for search (URL parameters) - no nonce needed as they don't modify data
         } elseif (isset($_GET[$search_key]) && !empty($_GET[$search_key])) {
             // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- GET request for search, no data modification
+            // GET requests for read-only operations (like search) do not require nonce verification per WordPress security guidelines
             return sanitize_text_field(wp_unslash($_GET[$search_key]));
         }
         return '';
@@ -1122,8 +1121,19 @@ class LHDN_Admin {
                 LHDN_Settings::init_defaults();
             }
 
-            // phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- Data is sanitized in validate_settings() and sanitize_settings() methods
-            $data = isset($_POST['lhdn']) ? wp_unslash($_POST['lhdn']) : [];
+            // Sanitize $_POST data immediately
+            $raw_data = isset($_POST['lhdn']) ? wp_unslash($_POST['lhdn']) : [];
+            $data = array();
+            if (is_array($raw_data)) {
+                foreach ($raw_data as $key => $value) {
+                    // Sanitize each value based on type
+                    if (is_array($value)) {
+                        $data[$key] = array_map('sanitize_text_field', $value);
+                    } else {
+                        $data[$key] = sanitize_text_field($value);
+                    }
+                }
+            }
 
             // Validate settings before saving
             $validation_result = $this->validate_settings($data);
