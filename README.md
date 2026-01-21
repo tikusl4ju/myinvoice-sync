@@ -7,7 +7,7 @@
 **Stable tag:** 2.0.9  
 **License:** GPLv2 or later  
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html  
-**Version:** 2.0.9  
+**Version:** 2.0.10  
 **Repository:** [GitHub](https://github.com/tikusl4ju/myinvoice-sync)  
 
 == Description ==
@@ -69,6 +69,15 @@ The MyInvoice Sync plugin automatically generates and submits invoices to the LH
 - **Debug Logging**: Enable detailed logging for troubleshooting
 - **Cron Status**: Monitor cron job execution times
 - **Order Integration**: View LHDN submission status directly in WooCommerce orders list
+- **Bulk Actions**: Bulk submit orders to LHDN from WooCommerce orders list
+
+### 💳 Credit Note Management
+
+- **Manual Credit Note Creation**: Create credit notes directly from submitted invoices in the admin panel
+- **Automatic Credit Note on Refund**: Automatically generates credit notes when WooCommerce refunds are processed
+- **Full Credit Support**: Supports full credit notes (all items refunded)
+- **Duplicate Prevention**: Prevents duplicate credit notes for the same invoice
+- **Works with Test Invoices**: Credit notes can be created even for test invoices without WooCommerce orders
 
 ## Installation
 
@@ -152,7 +161,16 @@ From the WooCommerce Orders list:
 1. Navigate to **WooCommerce > Orders**
 2. Find orders with "Not Submitted" status in the LHDN MyInvois column
 3. Click the **Process** button to manually submit the invoice
-4. Note: Process button only appears for "Completed", "Processing" or custum status orders.
+4. Note: Process button only appears for "Completed", "Processing" or custom status orders.
+
+### Bulk Submission
+
+From the WooCommerce Orders list:
+1. Navigate to **WooCommerce > Orders**
+2. Select multiple orders using the checkboxes
+3. Choose **"Submit to LHDN"** from the bulk actions dropdown
+4. Click **"Apply"** to process all selected orders
+5. View the result notice showing how many orders were processed, skipped, or failed
 
 ### Viewing Invoices
 
@@ -164,14 +182,47 @@ From the WooCommerce Orders list:
    - Direct links to LHDN portal
    - Item classification type
 
+### Creating Credit Notes
+
+#### Manual Credit Note Creation
+
+1. Navigate to **MyInvoice Sync > Invoices** in WordPress admin
+2. Find a submitted/valid invoice (status must be "submitted" or "valid")
+3. Click the **"Credit Note"** button in the Actions column
+4. The plugin will automatically:
+   - Create a full credit note for all items in the original invoice
+   - Submit it to LHDN with reference to the original invoice UUID
+   - Store it as a new invoice record with prefix "CN-" (e.g., "CN-12345")
+
+#### Automatic Credit Note on Refund
+
+When processing a refund in WooCommerce:
+1. Navigate to **WooCommerce > Orders**
+2. Open an order that has a submitted invoice
+3. Process a refund (full or partial)
+4. The plugin automatically:
+   - Detects the refund action
+   - Creates a credit note for the original invoice
+   - Prevents duplicate credit notes if one already exists
+   - Links the credit note to the original invoice UUID
+
+**Note**: If a credit note was already created manually, the automatic refund process will skip creating a duplicate.
+
 ### Status Indicators
 
 - **Not Submitted**: Invoice has not been submitted yet
 - **Processing**: Invoice is being processed by LHDN
 - **Submitted**: Invoice successfully submitted (click to view on LHDN portal)
+- **Valid**: Invoice validated by LHDN
 - **Cancelled**: Invoice has been cancelled
 - **Queueing**: Invoice is in retry queue
 - **Failed**: Submission failed (will be retried automatically)
+
+### Credit Note Indicators
+
+- Credit notes are stored as separate invoice records with prefix "CN-" (e.g., "CN-12345")
+- Credit notes appear in the invoice list with their own status
+- Credit notes reference the original invoice UUID in the LHDN submission
 
 ## WooCommerce Integration
 
@@ -187,6 +238,20 @@ The plugin adds a "LHDN MyInvois" column to the WooCommerce orders list showing:
 - **Consolidated Invoices**: For Malaysian customers without validated TIN
 - **E-Commerce Invoices**: For customers with validated TIN or foreign customers
 - **Automatic Detection**: Plugin automatically determines invoice type based on customer data
+
+### Bulk Order Submission
+
+- Select multiple orders from the WooCommerce orders list
+- Use the "Submit to LHDN" bulk action to process multiple orders at once
+- The bulk action respects all plugin settings (wallet exclusions, billing circle, etc.)
+- Orders that are already submitted or invalid are automatically skipped
+
+### Refund Integration
+
+- **Automatic Credit Note**: When a refund is processed in WooCommerce, the plugin automatically creates a credit note for the original invoice
+- **Duplicate Prevention**: If a credit note already exists (created manually or from a previous refund), the automatic process will skip creating a duplicate
+- **Full Credit Support**: Currently supports full credit notes (all items refunded)
+- **Works with All Orders**: Credit notes can be created for any submitted invoice, including test invoices
 
 ## Billing Circle Options
 
@@ -209,6 +274,57 @@ The plugin adds a "LHDN MyInvois" column to the WooCommerce orders list showing:
 2. Queue status includes the number of days and date (format: `q1dmy`, `q2dmy`, etc.)
 3. Cron job runs every 10 minutes to check for ready invoices
 4. Invoices are automatically submitted when the delay period expires
+
+## Credit Notes
+
+### Overview
+
+Credit notes are used to reverse or adjust previously submitted invoices. The plugin supports both manual and automatic credit note creation.
+
+### When to Use Credit Notes
+
+- **Refunds**: When customers request refunds for completed orders
+- **Invoice Corrections**: When an invoice needs to be reversed or adjusted
+- **Cancellation After Time Limit**: When an invoice cannot be cancelled (time limit exceeded) and a credit note is required instead
+
+### Credit Note Features
+
+- **Full Credit Support**: Creates credit notes for all items in the original invoice
+- **Automatic Linking**: Credit notes are automatically linked to the original invoice via UUID reference
+- **Duplicate Prevention**: System prevents creating multiple credit notes for the same invoice
+- **Works with Test Invoices**: Credit notes can be created even for test invoices without WooCommerce orders
+- **Manual or Automatic**: Can be created manually from admin panel or automatically on WooCommerce refunds
+
+### Credit Note Structure
+
+Credit notes follow the LHDN UBL format with:
+- **InvoiceTypeCode**: Set to "02" (Credit Note)
+- **BillingReference**: Contains reference to original invoice number and UUID
+- **Same Buyer/Seller Info**: Uses the same buyer and seller information as the original invoice
+- **Full Item List**: Includes all items from the original invoice with same quantities and prices
+
+### Creating Credit Notes
+
+#### From Admin Panel
+
+1. Navigate to **MyInvoice Sync > Invoices**
+2. Find an invoice with status "submitted" or "valid"
+3. Click the **"Credit Note"** button in the Actions column
+4. The credit note will be created and submitted automatically
+
+#### From WooCommerce Refund
+
+1. Process a refund in WooCommerce for an order with a submitted invoice
+2. The plugin automatically detects the refund
+3. A credit note is created and submitted to LHDN
+4. If a credit note already exists, the process is skipped (no duplicate)
+
+### Credit Note Storage
+
+- Credit notes are stored as separate invoice records in the database
+- Invoice number format: `CN-{original_invoice_number}` (e.g., "CN-12345")
+- Each credit note has its own UUID and status tracking
+- Credit notes appear in the invoice list alongside regular invoices
 
 ## User Profile TIN Validation
 

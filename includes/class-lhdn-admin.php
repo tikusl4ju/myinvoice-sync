@@ -309,6 +309,10 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
                     // Try to get order by ID if invoice_no is numeric
                     if (is_numeric($invoice_no)) {
                         $order = wc_get_order((int) $invoice_no);
+                        // Skip if it's a refund, not an order
+                        if ($order && is_a($order, 'WC_Order_Refund')) {
+                            $order = null;
+                        }
                     }
                     
                     // If not found, search by order number
@@ -317,6 +321,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
                             'limit' => 1,
                             'orderby' => 'date',
                             'order' => 'DESC',
+                            'type' => 'shop_order', // Exclude refunds
                             'meta_query' => [
                                 [
                                     'key' => '_order_number',
@@ -332,15 +337,24 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
                                 'limit' => 100,
                                 'orderby' => 'date',
                                 'order' => 'DESC',
+                                'type' => 'shop_order', // Exclude refunds
                             ]);
                             foreach ($orders as $test_order) {
-                                if ($test_order->get_order_number() === $invoice_no) {
+                                // Skip refunds - they don't have get_order_number()
+                                if (is_a($test_order, 'WC_Order_Refund')) {
+                                    continue;
+                                }
+                                if (method_exists($test_order, 'get_order_number') && $test_order->get_order_number() === $invoice_no) {
                                     $order = $test_order;
                                     break;
                                 }
                             }
                         } else {
                             $order = $orders[0];
+                            // Ensure it's not a refund
+                            if (is_a($order, 'WC_Order_Refund')) {
+                                $order = null;
+                            }
                         }
                     }
                 }
@@ -369,7 +383,8 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
                 // Check if WooCommerce is active and create link to order
                 if (class_exists('WC_Order')) {
                     $order = wc_get_order((int) $order_id);
-                    if ($order) {
+                    // Skip if it's a refund, not an order
+                    if ($order && !is_a($order, 'WC_Order_Refund')) {
                         $edit_url = admin_url('post.php?post=' . $order_id . '&action=edit');
                         return sprintf(
                             '<a href="%s" target="_blank">#%s</a>',
@@ -438,6 +453,21 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
                 <?php wp_nonce_field('lhdn_sync_action', 'lhdn_sync_nonce'); ?>
                 <input type="hidden" name="sync_uuid" value="<?php echo esc_attr($item->uuid); ?>">
                 <button class="button button-small" type="submit">Sync</button>
+            </form>
+        <?php endif; ?>
+
+        <?php
+        // Show Credit Note button only for normal invoices (not CN-*) with submitted/valid status
+        if (
+            $item->uuid &&
+            in_array($item->status, ['submitted', 'valid'], true) &&
+            strpos($item->invoice_no, 'CN-') !== 0
+        ) : ?>
+            <form method="post" action="" style="display:inline; margin: 0;">
+                <input type="hidden" name="page" value="myinvoice-sync-invoices">
+                <?php wp_nonce_field('lhdn_credit_note_action', 'lhdn_credit_note_nonce'); ?>
+                <input type="hidden" name="credit_note_invoice_no" value="<?php echo esc_attr($item->invoice_no); ?>">
+                <button class="button button-small" type="submit"><?php esc_html_e('Credit Note', 'myinvoice-sync'); ?></button>
             </form>
         <?php endif; ?>
 
@@ -2417,6 +2447,19 @@ class LHDN_Admin {
         if (isset($_POST['sync_uuid'])) {
             check_admin_referer('lhdn_sync_action', 'lhdn_sync_nonce');
             $this->invoice->sync_status(sanitize_text_field(wp_unslash($_POST['sync_uuid'])));
+        }
+
+        if (isset($_POST['credit_note_invoice_no'])) {
+            check_admin_referer('lhdn_credit_note_action', 'lhdn_credit_note_nonce');
+
+            $invoiceNo = sanitize_text_field(wp_unslash($_POST['credit_note_invoice_no']));
+            $result = $this->invoice->create_credit_note_for_invoice($invoiceNo);
+
+            if (is_array($result) && !$result['success']) {
+                echo '<div class="notice notice-error"><p>' . esc_html($result['message']) . '</p></div>';
+            } elseif (is_array($result) && $result['success']) {
+                echo '<div class="notice notice-success"><p>' . esc_html($result['message']) . '</p></div>';
+            }
         }
 
         if (isset($_POST['resubmit_invoice_no'])) {

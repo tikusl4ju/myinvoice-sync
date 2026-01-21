@@ -39,6 +39,14 @@ function lhdn_invoice_doc_ubl(string $invoiceNumber, array $params = []): array
     $industryClassificationCode = $params['industry_classification_code'] ?? '86909'; // Default MSIC code
     $industryClassificationName = LHDN_Helpers::get_msic_description($industryClassificationCode);
 
+    // Determine document type: normal invoice (01) or credit note (02)
+    $documentType = $params['document_type'] ?? 'invoice'; // 'invoice' or 'credit_note'
+    $invoiceTypeCode = ($documentType === 'credit_note') ? '02' : '01';
+
+    // Reference fields for credit note (original invoice)
+    $refInvoiceNo = $params['ref_invoice_no'] ?? null;
+    $refUuid      = $params['ref_uuid'] ?? null;
+
     // Use provided buyer_id_type and buyer_id_value if available, otherwise fall back to TIN-based logic
     $buyerIdType = $params['buyer_id_type'] ?? null;
     $buyerIdValue = $params['buyer_id_value'] ?? null;
@@ -82,18 +90,29 @@ function lhdn_invoice_doc_ubl(string $invoiceNumber, array $params = []): array
         "Invoice" => [
             array_merge(
                 [
-                  "UBLExtensions" => lhdn_ubl_extensions_v1_1(),
-                  "Signature" => lhdn_ubl_signature_v1_1(),
+                    "UBLExtensions" => lhdn_ubl_extensions_v1_1(),
+                    "Signature"     => lhdn_ubl_signature_v1_1(),
                 ],
                 [
                     "InvoiceTypeCode" => [[
-                        "_" => "01",
+                        "_"           => $invoiceTypeCode,
                         "listVersionID" => defined('LHDN_UBL_VERSION') ? LHDN_UBL_VERSION : (class_exists('LHDN_MyInvoice_Plugin') ? LHDN_MyInvoice_Plugin::get_ubl_version() : '1.0')
                     ]],
                     "ID" => [["_" => $invoiceNumber]],
                     "IssueDate" => [["_" => gmdate("Y-m-d")]],
                     "IssueTime" => [["_" => gmdate("H:i:s") . "Z"]],
                     "DocumentCurrencyCode" => [["_" => "MYR"]],
+
+                    // For credit notes, reference the original invoice and UUID
+                    // Minimal BillingReference structure following LHDN guidance
+                    ...( $documentType === 'credit_note' && $refInvoiceNo && $refUuid ? [
+                        "BillingReference" => [[
+                            "InvoiceDocumentReference" => [[
+                                "ID"   => [["_" => $refInvoiceNo]],
+                                "UUID" => [["_" => $refUuid]],
+                            ]],
+                        ]],
+                    ] : [] ),
 
                     "AccountingSupplierParty" => [[
                         "Party" => [[

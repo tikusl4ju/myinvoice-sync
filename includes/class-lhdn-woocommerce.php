@@ -116,6 +116,71 @@ class LHDN_WooCommerce {
     }
 
     /**
+     * Handle WooCommerce refunds by issuing a full credit note
+     *
+     * This will NOT create a second credit note if one already exists
+     * (either created manually from the invoices list or from a previous refund).
+     *
+     * @param int $order_id
+     * @param int $refund_id
+     */
+    public function handle_order_refunded($order_id, $refund_id) {
+        if (!LHDN_Settings::is_plugin_active()) {
+            LHDN_Logger::log("WC Order {$order_id} refund: plugin inactive, skipping credit note.");
+            return;
+        }
+
+        if (!class_exists('WC_Order')) {
+            return;
+        }
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            return;
+        }
+
+        global $wpdb;
+        $invoice_no = $order->get_order_number();
+
+        // Ensure there is an original submitted/valid invoice
+        $table = $wpdb->prefix . 'lhdn_myinvoice';
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $original = $wpdb->get_row($wpdb->prepare(
+            "SELECT status, uuid FROM {$table} WHERE invoice_no = %s LIMIT 1",
+            $invoice_no
+        ));
+
+        if (!$original || !in_array($original->status, ['submitted', 'valid'], true) || empty($original->uuid)) {
+            LHDN_Logger::log("WC Order {$order_id} refund: no submitted/valid invoice found for {$invoice_no}, skipping credit note.");
+            return;
+        }
+
+        // Check if a credit note already exists (manual or previous auto)
+        $cn_invoice_no = 'CN-' . $invoice_no;
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $existing_cn = $wpdb->get_row($wpdb->prepare(
+            "SELECT status FROM {$table} WHERE invoice_no = %s LIMIT 1",
+            $cn_invoice_no
+        ));
+
+        if ($existing_cn && in_array($existing_cn->status, ['submitted', 'valid', 'processing', 'retry'], true)) {
+            LHDN_Logger::log("WC Order {$order_id} refund: credit note already exists for {$invoice_no}, skipping new credit note.");
+            return;
+        }
+
+        // Create the full credit note
+        $result = $this->invoice->create_credit_note_for_invoice($invoice_no);
+
+        if (is_array($result)) {
+            if ($result['success']) {
+                LHDN_Logger::log("WC Order {$order_id} refund: credit note created successfully for {$invoice_no}.");
+            } else {
+                LHDN_Logger::log("WC Order {$order_id} refund: failed to create credit note for {$invoice_no} - {$result['message']}");
+            }
+        }
+    }
+
+    /**
      * Submit order when processing
      */
     public function submit_from_wc_order_processing($order_id) {
@@ -163,6 +228,154 @@ class LHDN_WooCommerce {
         LHDN_Logger::log("WC Order processing > Submitting to LHDN ({$order_id})");
 
         $this->invoice->submit_wc_order($order);
+    }
+
+    /**
+     * Add bulk action to WooCommerce orders list
+     */
+    public function add_bulk_actions($bulk_actions) {
+        $bulk_actions['lhdn_submit_orders'] = __('Submit to LHDN', 'myinvoice-sync');
+        return $bulk_actions;
+    }
+
+    /**
+     * Handle bulk action submission
+     */
+    public function handle_bulk_action_submit($redirect_to, $action, $post_ids) {
+        // Only process our custom action
+        if ($action !== 'lhdn_submit_orders') {
+            return $redirect_to;
+        }
+
+        // Check permissions
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(__('You do not have permission to perform this action.', 'myinvoice-sync'));
+        }
+
+        // Check nonce
+        if (!isset($_REQUEST['_wpnonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_REQUEST['_wpnonce'])), 'bulk-orders')) {
+            wp_die(__('Security check failed.', 'myinvoice-sync'));
+        }
+
+        if (!LHDN_Settings::is_plugin_active()) {
+            $redirect_to = add_query_arg('lhdn_bulk_error', urlencode(__('Plugin is inactive.', 'myinvoice-sync')), $redirect_to);
+            return $redirect_to;
+        }
+
+        $processed = 0;
+        $skipped = 0;
+        $errors = 0;
+
+        foreach ($post_ids as $order_id) {
+            $order = wc_get_order((int) $order_id);
+            
+            if (!$order) {
+                $skipped++;
+                continue;
+            }
+
+            // Skip refunds
+            if (is_a($order, 'WC_Order_Refund')) {
+                $skipped++;
+                continue;
+            }
+
+            // Skip wallet payment orders if setting is enabled
+            if (LHDN_Settings::get('exclude_wallet', '1') === '1' && $this->is_wallet_payment($order)) {
+                $skipped++;
+                continue;
+            }
+
+            // Check if already submitted
+            global $wpdb;
+            $invoice_no = $order->get_order_number();
+            $existing_invoice = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT status FROM {$wpdb->prefix}lhdn_myinvoice 
+                     WHERE invoice_no = %s 
+                     AND status IN ('submitted', 'valid', 'cancelled') 
+                     LIMIT 1",
+                    $invoice_no
+                )
+            );
+
+            if ($existing_invoice) {
+                $skipped++;
+                continue;
+            }
+
+            // Submit the order
+            try {
+                $result = $this->invoice->submit_wc_order($order);
+                if ($result !== false) {
+                    $processed++;
+                } else {
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                LHDN_Logger::log("Bulk submit error for order #{$order_id}: " . $e->getMessage());
+                $errors++;
+            }
+
+            // Small delay to prevent overload
+            usleep(100000); // 0.1 second
+        }
+
+        // Add result message to redirect URL
+        $redirect_to = add_query_arg([
+            'lhdn_bulk_processed' => $processed,
+            'lhdn_bulk_skipped' => $skipped,
+            'lhdn_bulk_errors' => $errors,
+        ], $redirect_to);
+
+        return $redirect_to;
+    }
+
+    /**
+     * Display bulk action result notices
+     */
+    public function display_bulk_action_notices() {
+        if (!isset($_GET['lhdn_bulk_processed']) && !isset($_GET['lhdn_bulk_skipped']) && !isset($_GET['lhdn_bulk_errors']) && !isset($_GET['lhdn_bulk_error'])) {
+            return;
+        }
+
+        $processed = isset($_GET['lhdn_bulk_processed']) ? (int) $_GET['lhdn_bulk_processed'] : 0;
+        $skipped = isset($_GET['lhdn_bulk_skipped']) ? (int) $_GET['lhdn_bulk_skipped'] : 0;
+        $errors = isset($_GET['lhdn_bulk_errors']) ? (int) $_GET['lhdn_bulk_errors'] : 0;
+        $error_msg = isset($_GET['lhdn_bulk_error']) ? sanitize_text_field(wp_unslash($_GET['lhdn_bulk_error'])) : '';
+
+        if ($error_msg) {
+            echo '<div class="notice notice-error is-dismissible"><p>' . esc_html($error_msg) . '</p></div>';
+            return;
+        }
+
+        $messages = [];
+        if ($processed > 0) {
+            $messages[] = sprintf(
+                /* translators: %d: number of orders */
+                _n('%d order submitted to LHDN successfully.', '%d orders submitted to LHDN successfully.', $processed, 'myinvoice-sync'),
+                $processed
+            );
+        }
+        if ($skipped > 0) {
+            $messages[] = sprintf(
+                /* translators: %d: number of orders */
+                _n('%d order skipped (already submitted or invalid).', '%d orders skipped (already submitted or invalid).', $skipped, 'myinvoice-sync'),
+                $skipped
+            );
+        }
+        if ($errors > 0) {
+            $messages[] = sprintf(
+                /* translators: %d: number of orders */
+                _n('%d order failed to submit.', '%d orders failed to submit.', $errors, 'myinvoice-sync'),
+                $errors
+            );
+        }
+
+        if (!empty($messages)) {
+            $notice_type = ($errors > 0) ? 'notice-warning' : 'notice-success';
+            echo '<div class="notice ' . esc_attr($notice_type) . ' is-dismissible"><p>' . esc_html(implode(' ', $messages)) . '</p></div>';
+        }
     }
 
     /**

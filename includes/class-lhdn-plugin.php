@@ -261,6 +261,8 @@ class LHDN_MyInvoice_Plugin {
         add_action('woocommerce_order_status_completed', [$this->woocommerce, 'submit_from_wc_order'], 10, 1);
         add_action('woocommerce_order_status_processing', [$this->woocommerce, 'submit_from_wc_order_processing'], 10, 1);
         add_action('woocommerce_checkout_process', [$this->woocommerce, 'validate_tin_on_checkout']);
+        // Auto credit note on refund (full credit); guarded against duplicates in handler
+        add_action('woocommerce_order_refunded', [$this->woocommerce, 'handle_order_refunded'], 10, 2);
         
         // Register hooks for custom order statuses (treated like "completed")
         $custom_statuses = LHDN_Settings::get('custom_order_statuses', '');
@@ -275,6 +277,16 @@ class LHDN_MyInvoice_Plugin {
         }
         add_filter('manage_woocommerce_page_wc-orders_columns', [$this->woocommerce, 'add_order_column'], 20);
         add_action('manage_woocommerce_page_wc-orders_custom_column', [$this->woocommerce, 'orders_list_column_content'], 20, 2);
+        
+        // Bulk actions for WooCommerce orders
+        add_filter('bulk_actions-woocommerce_page_wc-orders', [$this->woocommerce, 'add_bulk_actions'], 20);
+        add_filter('handle_bulk_actions-woocommerce_page_wc-orders', [$this->woocommerce, 'handle_bulk_action_submit'], 10, 3);
+        add_action('admin_notices', [$this->woocommerce, 'display_bulk_action_notices']);
+        
+        // Legacy support for old orders screen (edit.php)
+        add_filter('bulk_actions-edit-shop_order', [$this->woocommerce, 'add_bulk_actions'], 20);
+        add_filter('handle_bulk_actions-edit-shop_order', [$this->woocommerce, 'handle_bulk_action_submit'], 10, 3);
+        
         add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
         
         // My Account orders
