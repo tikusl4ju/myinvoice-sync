@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/tikusl4ju/myinvoice-sync
  * Description: LHDN MyInvois Auto Submission
  * Author: TikusL4ju
- * Version: 2.0.9
+ * Version: 2.0.11
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: myinvoice-sync

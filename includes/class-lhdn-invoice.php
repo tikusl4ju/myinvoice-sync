@@ -236,39 +236,50 @@ class LHDN_Invoice {
         ];
 
         // Update order_id if missing and invoice is not a test invoice
-        if ($invoice_record && !str_starts_with($invoice_record->invoice_no, 'TEST-')) {
+        // For test submissions, invoice_no may contain 'TEST-' in various positions (e.g. CN-TEST-123)
+        if ($invoice_record && strpos($invoice_record->invoice_no, 'TEST-') === false) {
             // If order_id is missing or 0, try to find it from invoice_no
             if (empty($invoice_record->order_id) || $invoice_record->order_id == 0) {
                 if (class_exists('WC_Order')) {
-                    // Try to get order by invoice_no (order number)
+                    // Try to get order by invoice_no (order number), restricting to shop_order (exclude refunds)
                     $orders = wc_get_orders([
-                        'limit' => 1,
-                        'orderby' => 'date',
-                        'order' => 'DESC',
+                        'limit'    => 1,
+                        'orderby'  => 'date',
+                        'order'    => 'DESC',
+                        'type'     => 'shop_order',
                         'meta_query' => [
                             [
-                                'key' => '_order_number',
-                                'value' => $invoice_record->invoice_no,
-                                'compare' => '='
-                            ]
-                        ]
+                                'key'     => '_order_number',
+                                'value'   => $invoice_record->invoice_no,
+                                'compare' => '=',
+                            ],
+                        ],
                     ]);
 
                     if (empty($orders)) {
-                        // Try searching by get_order_number() method
+                        // Try searching by get_order_number() method, again only across shop_order
                         $orders = wc_get_orders([
-                            'limit' => 100,
+                            'limit'   => 100,
                             'orderby' => 'date',
-                            'order' => 'DESC',
+                            'order'   => 'DESC',
+                            'type'    => 'shop_order',
                         ]);
                         foreach ($orders as $test_order) {
-                            if ($test_order->get_order_number() === $invoice_record->invoice_no) {
+                            // Skip refunds and ensure method exists
+                            if (is_a($test_order, 'WC_Order_Refund')) {
+                                continue;
+                            }
+                            if (method_exists($test_order, 'get_order_number') && $test_order->get_order_number() === $invoice_record->invoice_no) {
                                 $update_data['order_id'] = $test_order->get_id();
                                 break;
                             }
                         }
                     } else {
-                        $update_data['order_id'] = $orders[0]->get_id();
+                        $order = $orders[0];
+                        // Ensure it's not a refund
+                        if ($order && !is_a($order, 'WC_Order_Refund')) {
+                            $update_data['order_id'] = $order->get_id();
+                        }
                     }
                 }
             }
