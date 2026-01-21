@@ -812,6 +812,318 @@ class LHDN_Invoice {
     }
 
     /**
+     * Create a refund note for an existing credit note (CN-*)
+     *
+     * @param string $creditNoteInvoiceNo Credit note invoice number (CN-XXXX)
+     * @return array{success:bool,message:string}
+     */
+    public function create_refund_note_for_credit_note($creditNoteInvoiceNo) {
+        if (!LHDN_Settings::is_plugin_active()) {
+            return [
+                'success' => false,
+                'message' => __('Plugin is inactive, cannot create refund note.', 'myinvoice-sync'),
+            ];
+        }
+
+        if (strpos($creditNoteInvoiceNo, 'CN-') !== 0) {
+            return [
+                'success' => false,
+                'message' => __('Refund note can only be created from credit note records.', 'myinvoice-sync'),
+            ];
+        }
+
+        $originalInvoiceNo = substr($creditNoteInvoiceNo, 3);
+
+        global $wpdb;
+
+        $table = $wpdb->prefix . 'lhdn_myinvoice';
+
+        // Get original invoice record (the invoice that the credit note refers to)
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $original = $wpdb->get_row($wpdb->prepare(
+            "SELECT * FROM {$table} WHERE invoice_no = %s LIMIT 1",
+            $originalInvoiceNo
+        ));
+
+        if (!$original) {
+            return [
+                'success' => false,
+                'message' => __('Original invoice record not found for this credit note.', 'myinvoice-sync'),
+            ];
+        }
+
+        if (!in_array($original->status, ['submitted', 'valid'], true) || empty($original->uuid)) {
+            return [
+                'success' => false,
+                'message' => __('Refund note can only be issued for submitted/valid invoices with UUID.', 'myinvoice-sync'),
+            ];
+        }
+
+        // Prevent duplicate refund notes: check if RN row already exists
+        $rn_invoice_no = 'RN-' . $originalInvoiceNo;
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $existing_rn = $wpdb->get_row($wpdb->prepare(
+            "SELECT status FROM {$table} WHERE invoice_no = %s LIMIT 1",
+            $rn_invoice_no
+        ));
+
+        if ($existing_rn && in_array($existing_rn->status, ['submitted', 'valid', 'processing', 'retry'], true)) {
+            return [
+                'success' => false,
+                'message' => __('Refund note already exists or is being processed for this invoice.', 'myinvoice-sync'),
+            ];
+        }
+
+        // Reuse the same data building logic as credit note: create a full refund for all items
+        $order_id = (int) $original->order_id;
+        $order = null;
+        $buyer_data = null;
+        $lines = [];
+        $total = 0;
+        $tax_amount = 0;
+        $item_classification_code = $original->item_class ?: '004';
+
+        if ($order_id > 0 && class_exists('WC_Order')) {
+            $order = wc_get_order($order_id);
+        }
+
+        if ($order) {
+            // Build buyer details from WooCommerce order
+            $user_id = $order->get_user_id();
+
+            $is_foreign = ($order->get_billing_country() !== 'MY');
+            $tin     = $is_foreign ? 'EI00000000020' : 'EI00000000010';
+            $id_type = $is_foreign ? 'PASSPORT' : 'NRIC';
+            $id_value = 'NA';
+
+            $item_classification_code = $is_foreign ? '008' : '004';
+
+            if ($user_id) {
+                $status = get_user_meta($user_id, 'lhdn_tin_validation', true);
+                if ($status === 'valid') {
+                    $tin      = get_user_meta($user_id, 'lhdn_tin', true) ?: $tin;
+                    $id_type  = get_user_meta($user_id, 'lhdn_id_type', true) ?: $id_type;
+                    $id_value = get_user_meta($user_id, 'lhdn_id_value', true) ?: $id_value;
+                    $item_classification_code = '008';
+                }
+            }
+
+            $i = 1;
+
+            foreach ($order->get_items() as $item) {
+                $qty   = (float) $item->get_quantity();
+                $price = (float) $item->get_total() / max($qty, 1);
+
+                $lines[] = [
+                    'id'          => $i++,
+                    'qty'         => $qty,
+                    'unit_price'  => round($price, 2),
+                    'desc'        => $item->get_name(),
+                ];
+
+                $total += $item->get_total();
+                $tax_amount += $item->get_total_tax();
+            }
+
+            foreach ($order->get_items('shipping') as $shipping) {
+                $shippingTotal = (float) $shipping->get_total();
+
+                if ($shippingTotal <= 0) {
+                    continue;
+                }
+
+                $lines[] = [
+                    'id'         => $i++,
+                    'qty'        => 1,
+                    'unit_price' => round($shippingTotal, 2),
+                    'desc'       => $shipping->get_name() ?: 'Shipping Fee',
+                ];
+
+                $total += $shippingTotal;
+            }
+
+            // Add order fees (e.g., COD fees, payment gateway fees)
+            foreach ($order->get_fees() as $fee) {
+                $feeTotal = (float) $fee->get_total();
+
+                if ($feeTotal <= 0) {
+                    continue;
+                }
+
+                $lines[] = [
+                    'id'         => $i++,
+                    'qty'        => 1,
+                    'unit_price' => round($feeTotal, 2),
+                    'desc'       => $fee->get_name() ?: 'Fee',
+                ];
+
+                $total += $feeTotal;
+                $tax_amount += $fee->get_total_tax();
+            }
+
+            // Get and clean phone number (billing first, fallback to shipping)
+            $phone = $this->clean_phone_number($order->get_billing_phone());
+            if (empty($phone)) {
+                $phone = $this->clean_phone_number($order->get_shipping_phone());
+            }
+            if (empty($phone)) {
+                $phone = '60123456789'; // Default Malaysian phone number format
+                LHDN_Logger::log("WC Order #{$order->get_id()}: Phone number missing for refund note, using default");
+            }
+
+            // Get billing city, fallback to country if city is not available
+            $billing_city = $order->get_billing_city();
+            if (empty($billing_city)) {
+                $billing_city = $order->get_billing_country();
+            }
+
+            $buyer_data = [
+                'tin'            => $tin,
+                'id_type'        => $id_type,
+                'id_value'       => $id_value,
+                'name'           => $order->get_billing_company() ?: $order->get_formatted_billing_full_name(),
+                'phone'          => $phone,
+                'email'          => $order->get_billing_email(),
+                'address'        => [
+                    'city'       => $billing_city,
+                    'postcode'   => $order->get_billing_postcode(),
+                    'state_code' => LHDN_Helpers::wc_state_to_lhdn($order->get_billing_state()),
+                    'line1'      => trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2()),
+                    'country'    => LHDN_Helpers::country_iso2_to_iso3($order->get_billing_country()),
+                ]
+            ];
+        } else {
+            // Fallback: Extract data from stored payload (for test invoices or invoices without WC order)
+            if (empty($original->payload)) {
+                return [
+                    'success' => false,
+                    'message' => __('Cannot create refund note: Original invoice data not available and WooCommerce order not found.', 'myinvoice-sync'),
+                ];
+            }
+
+            // Decode the stored payload JSON
+            $original_ubl = json_decode($original->payload, true);
+            if (!$original_ubl || !isset($original_ubl['Invoice'][0])) {
+                return [
+                    'success' => false,
+                    'message' => __('Cannot create refund note: Invalid original invoice data format.', 'myinvoice-sync'),
+                ];
+            }
+
+            $inv = $original_ubl['Invoice'][0];
+
+            // Extract buyer information from original invoice
+            $customer_party = $inv['AccountingCustomerParty'][0]['Party'][0] ?? [];
+            $party_id = $customer_party['PartyIdentification'] ?? [];
+            $postal_addr = $customer_party['PostalAddress'][0] ?? [];
+            $legal_entity = $customer_party['PartyLegalEntity'][0] ?? [];
+            $contact = $customer_party['Contact'][0] ?? [];
+
+            // Extract TIN and ID
+            $tin = 'EI00000000010';
+            $id_type = 'NRIC';
+            $id_value = 'NA';
+            foreach ($party_id as $pid) {
+                $scheme = $pid['ID'][0]['schemeID'] ?? '';
+                $value = $pid['ID'][0]['_'] ?? '';
+                if ($scheme === 'TIN') {
+                    $tin = $value;
+                } elseif (in_array($scheme, ['NRIC', 'PASSPORT', 'BRN'], true)) {
+                    $id_type = $scheme;
+                    $id_value = $value;
+                }
+            }
+
+            // Extract address
+            $address_line = $postal_addr['AddressLine'][0]['Line'][0]['_'] ?? '';
+            $city = $postal_addr['CityName'][0]['_'] ?? '';
+            $postcode = $postal_addr['PostalZone'][0]['_'] ?? '';
+            $state_code = $postal_addr['CountrySubentityCode'][0]['_'] ?? '';
+            $country = $postal_addr['Country'][0]['IdentificationCode'][0]['_'] ?? 'MYS';
+
+            // Extract contact info
+            $phone = $contact['Telephone'][0]['_'] ?? '60123456789';
+            $email = $contact['ElectronicMail'][0]['_'] ?? '';
+            $name = $legal_entity['RegistrationName'][0]['_'] ?? '';
+
+            $buyer_data = [
+                'tin'            => $tin,
+                'id_type'        => $id_type,
+                'id_value'       => $id_value,
+                'name'           => $name,
+                'phone'          => $phone,
+                'email'          => $email,
+                'address'        => [
+                    'city'       => $city,
+                    'postcode'   => $postcode,
+                    'state_code' => $state_code,
+                    'line1'       => $address_line,
+                    'country'    => $country,
+                ]
+            ];
+
+            // Extract invoice lines from original invoice
+            $invoice_lines = $inv['InvoiceLine'] ?? [];
+            $i = 1;
+            foreach ($invoice_lines as $line) {
+                $qty = (float) ($line['InvoicedQuantity'][0]['_'] ?? 1);
+                $price = (float) ($line['Price'][0]['PriceAmount'][0]['_'] ?? 0);
+                $desc = $line['Item'][0]['Description'][0]['_'] ?? 'Item';
+
+                $lines[] = [
+                    'id'          => $i++,
+                    'qty'         => $qty,
+                    'unit_price'  => round($price, 2),
+                    'desc'        => $desc,
+                ];
+
+                $total += ($qty * $price);
+            }
+
+            // Extract tax amount from TaxTotal
+            $tax_total = $inv['TaxTotal'][0] ?? [];
+            $tax_amount = (float) ($tax_total['TaxAmount'][0]['_'] ?? 0);
+
+            // Extract total from LegalMonetaryTotal
+            $monetary_total = $inv['LegalMonetaryTotal'][0] ?? [];
+            $total = (float) ($monetary_total['PayableAmount'][0]['_'] ?? $total);
+        }
+
+        // Submit as a refund note document (InvoiceTypeCode 04)
+        $result = $this->submit([
+            'invoice_no'               => $rn_invoice_no,
+            'order_id'                 => $order_id > 0 ? $order_id : null,
+            'item_classification_code' => $item_classification_code,
+            'document_type'            => 'refund_note',
+            'ref_invoice_no'           => $originalInvoiceNo,
+            'ref_uuid'                 => $original->uuid,
+            'buyer'                    => $buyer_data,
+            'seller_address' => [
+                'city'       => LHDN_SELLER_ADDRESS_CITY,
+                'postcode'   => LHDN_SELLER_ADDRESS_POSTCODE,
+                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE),
+                'line1'      => LHDN_SELLER_ADDRESS_LINE1,
+                'country'    => LHDN_SELLER_ADDRESS_COUNTRY,
+            ],
+            'lines'      => $lines,
+            'total'      => $total,
+            'tax_amount' => $tax_amount,
+        ]);
+
+        if ($result === false) {
+            return [
+                'success' => false,
+                'message' => __('Failed to submit refund note to LHDN.', 'myinvoice-sync'),
+            ];
+        }
+
+        return [
+            'success' => true,
+            'message' => __('Refund note submitted successfully.', 'myinvoice-sync'),
+        ];
+    }
+
+    /**
      * Resubmit WooCommerce order
      */
     public function resubmit_wc_order($ordernum) {

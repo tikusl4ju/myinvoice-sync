@@ -39,11 +39,23 @@ function lhdn_invoice_doc_ubl(string $invoiceNumber, array $params = []): array
     $industryClassificationCode = $params['industry_classification_code'] ?? '86909'; // Default MSIC code
     $industryClassificationName = LHDN_Helpers::get_msic_description($industryClassificationCode);
 
-    // Determine document type: normal invoice (01) or credit note (02)
-    $documentType = $params['document_type'] ?? 'invoice'; // 'invoice' or 'credit_note'
-    $invoiceTypeCode = ($documentType === 'credit_note') ? '02' : '01';
+    // Determine document type and InvoiceTypeCode:
+    // 01 = Invoice, 02 = Credit Note, 04 = Refund Note
+    $documentType = $params['document_type'] ?? 'invoice'; // 'invoice', 'credit_note', 'refund_note'
+    switch ($documentType) {
+        case 'credit_note':
+            $invoiceTypeCode = '02';
+            break;
+        case 'refund_note':
+            $invoiceTypeCode = '04';
+            break;
+        case 'invoice':
+        default:
+            $invoiceTypeCode = '01';
+            break;
+    }
 
-    // Reference fields for credit note (original invoice)
+    // Reference fields for notes (original invoice)
     $refInvoiceNo = $params['ref_invoice_no'] ?? null;
     $refUuid      = $params['ref_uuid'] ?? null;
 
@@ -103,9 +115,9 @@ function lhdn_invoice_doc_ubl(string $invoiceNumber, array $params = []): array
                     "IssueTime" => [["_" => gmdate("H:i:s") . "Z"]],
                     "DocumentCurrencyCode" => [["_" => "MYR"]],
 
-                    // For credit notes, reference the original invoice and UUID
+                    // For credit / refund notes, reference the original invoice and UUID
                     // Minimal BillingReference structure following LHDN guidance
-                    ...( $documentType === 'credit_note' && $refInvoiceNo && $refUuid ? [
+                    ...( in_array($documentType, ['credit_note', 'refund_note'], true) && $refInvoiceNo && $refUuid ? [
                         "BillingReference" => [[
                             "InvoiceDocumentReference" => [[
                                 "ID"   => [["_" => $refInvoiceNo]],

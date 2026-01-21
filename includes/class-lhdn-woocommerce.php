@@ -405,8 +405,65 @@ class LHDN_WooCommerce {
 
         global $wpdb;
 
-        $invoice_no = $order->get_order_number();
+        $invoice_no      = $order->get_order_number();
+        $credit_note_no  = 'CN-' . $invoice_no;
+        $refund_note_no  = 'RN-' . $invoice_no;
 
+        // 1) If a Refund Note exists (RN-XXXX), show that first
+        $rn_row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT uuid, longid, status, item_class 
+                 FROM {$wpdb->prefix}lhdn_myinvoice
+                 WHERE invoice_no = %s
+                 LIMIT 1",
+                $refund_note_no
+            )
+        );
+
+        if ($rn_row && $rn_row->uuid && $rn_row->longid && defined('LHDN_HOST')) {
+            $url = LHDN_HOST . '/' . $rn_row->uuid . '/share/' . $rn_row->longid;
+            printf(
+                '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>',
+                esc_url($url),
+                esc_html__('Refund Note', 'myinvoice-sync')
+            );
+            return;
+        }
+
+        // 2) If a Credit Note exists (CN-XXXX), show it and a Refund Note button
+        $cn_row = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT uuid, longid, status, item_class 
+                 FROM {$wpdb->prefix}lhdn_myinvoice
+                 WHERE invoice_no = %s
+                 LIMIT 1",
+                $credit_note_no
+            )
+        );
+
+        if ($cn_row && $cn_row->uuid && $cn_row->longid && defined('LHDN_HOST')) {
+            $url = LHDN_HOST . '/' . $cn_row->uuid . '/share/' . $cn_row->longid;
+            printf(
+                '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>',
+                esc_url($url),
+                esc_html__('Credit Note', 'myinvoice-sync')
+            );
+
+            // Show Refund Note button below the Credit Note link
+            ?>
+            <br>
+            <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=myinvoice-sync-invoices')); ?>" style="margin-top: 3px;">
+                <?php wp_nonce_field('lhdn_refund_note_action', 'lhdn_refund_note_nonce'); ?>
+                <input type="hidden" name="refund_note_invoice_no" value="<?php echo esc_attr($credit_note_no); ?>">
+                <button type="submit" class="button button-small" onclick="return confirm('<?php echo esc_js(__('Are you sure you want to create a refund note for this credit note? This will be submitted to LHDN.', 'myinvoice-sync')); ?>');">
+                    <?php esc_html_e('Refund Note', 'myinvoice-sync'); ?>
+                </button>
+            </form>
+            <?php
+            return;
+        }
+
+        // 3) Fallback: normal invoice record
         $row = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT uuid, longid, status, item_class, queue_status, queue_date
@@ -551,13 +608,36 @@ class LHDN_WooCommerce {
 
         global $wpdb;
 
-        $invoice_no = $order->get_order_number();
+        $invoice_no   = $order->get_order_number();
         $order_status = $order->get_status(); // e.g. 'completed', 'refunded'
 
-        // If order is refunded, try to show Credit Note receipt instead
+        // If order is refunded, first try to show Refund Note, then Credit Note
         if ($order_status === 'refunded') {
+            $rn_invoice_no = 'RN-' . $invoice_no;
             $cn_invoice_no = 'CN-' . $invoice_no;
 
+            // Prefer Refund Note if it exists
+            $rn_row = $wpdb->get_row(
+                $wpdb->prepare(
+                    "SELECT uuid, longid, status
+                     FROM {$wpdb->prefix}lhdn_myinvoice
+                     WHERE invoice_no = %s
+                     LIMIT 1",
+                    $rn_invoice_no
+                )
+            );
+
+            if ($rn_row && $rn_row->uuid && $rn_row->longid) {
+                $rn_url = LHDN_HOST . '/' . $rn_row->uuid . '/share/' . $rn_row->longid;
+                printf(
+                    '<a href="%s" target="_blank" rel="noopener noreferrer">%s</a>',
+                    esc_url($rn_url),
+                    esc_html__('View Refund Note', 'myinvoice-sync')
+                );
+                return;
+            }
+
+            // Fallback to Credit Note if Refund Note not found
             $cn_row = $wpdb->get_row(
                 $wpdb->prepare(
                     "SELECT uuid, longid, status
@@ -579,7 +659,7 @@ class LHDN_WooCommerce {
             }
         }
 
-        // Fallback: show original invoice receipt
+        // Fallback: show original invoice receipt (for non-refunded orders or when no CN/RN exists)
         $row = $wpdb->get_row(
             $wpdb->prepare(
                 "SELECT uuid, longid, status

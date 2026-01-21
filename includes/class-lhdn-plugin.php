@@ -469,7 +469,40 @@ class LHDN_MyInvoice_Plugin {
             return;
         }
 
-        $this->woocommerce->submit_from_wc_order($order_id);
+        // Get the WooCommerce order
+        if (!class_exists('WC_Order')) {
+            wp_send_json_error(['message' => 'WooCommerce is not available.']);
+            return;
+        }
+
+        $order = wc_get_order($order_id);
+        if (!$order) {
+            wp_send_json_error(['message' => 'Order not found.']);
+            return;
+        }
+
+        global $wpdb;
+        $invoice_no = $order->get_order_number();
+
+        // Check if there is an existing queued invoice for this order
+        $table = $wpdb->prefix . 'lhdn_myinvoice';
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $existing = $wpdb->get_row(
+            $wpdb->prepare(
+                "SELECT status FROM {$table} WHERE invoice_no = %s LIMIT 1",
+                $invoice_no
+            )
+        );
+
+        if ($existing && $existing->status === 'queued') {
+            // Force immediate submission for queued invoices, ignoring billing circle
+            // Use a fresh LHDN_Invoice instance (plugin does not store one on this class)
+            $invoice = new LHDN_Invoice();
+            $invoice->submit_wc_order($order);
+        } else {
+            // Use normal submission logic (respects billing circle and other checks)
+            $this->woocommerce->submit_from_wc_order($order_id);
+        }
         
         wp_send_json_success(['message' => 'Order submitted successfully']);
     }

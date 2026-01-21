@@ -30,6 +30,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
     public function get_columns() {
         return [
             'invoice_no'  => 'Invoice',
+            'type'        => 'Type',
             'order_id'    => 'Order ID',
             'status'      => 'Status',
             'code'        => 'HTTP',
@@ -372,6 +373,20 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
                 
                 // If no order found (test invoices, etc.), just display the number
                 return esc_html($invoice_no);
+
+            case 'type':
+                // Determine document type based on invoice_no prefix
+                $invoice_no = isset($item->invoice_no) ? (string) $item->invoice_no : '';
+                
+                if (strpos($invoice_no, 'RN-') === 0) {
+                    return esc_html__('Refund Note', 'myinvoice-sync');
+                }
+                
+                if (strpos($invoice_no, 'CN-') === 0) {
+                    return esc_html__('Credit Note', 'myinvoice-sync');
+                }
+                
+                return esc_html__('Invoice', 'myinvoice-sync');
             
             case 'order_id':
                 $order_id = isset($item->order_id) ? $item->order_id : '';
@@ -457,17 +472,33 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
         <?php endif; ?>
 
         <?php
-        // Show Credit Note button only for normal invoices (not CN-*) with submitted/valid status
+        // Show Credit Note button only for normal invoices (not CN-* or RN-*) with submitted/valid status
         if (
             $item->uuid &&
             in_array($item->status, ['submitted', 'valid'], true) &&
-            strpos($item->invoice_no, 'CN-') !== 0
+            strpos($item->invoice_no, 'CN-') !== 0 &&
+            strpos($item->invoice_no, 'RN-') !== 0
         ) : ?>
             <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to create a credit note for this invoice? This will be submitted to LHDN.', 'myinvoice-sync')); ?>');">
                 <input type="hidden" name="page" value="myinvoice-sync-invoices">
                 <?php wp_nonce_field('lhdn_credit_note_action', 'lhdn_credit_note_nonce'); ?>
                 <input type="hidden" name="credit_note_invoice_no" value="<?php echo esc_attr($item->invoice_no); ?>">
                 <button class="button button-small" type="submit"><?php esc_html_e('Credit Note', 'myinvoice-sync'); ?></button>
+            </form>
+        <?php endif; ?>
+
+        <?php
+        // Show Refund Note button only for credit notes (CN-*) with submitted/valid status
+        if (
+            $item->uuid &&
+            in_array($item->status, ['submitted', 'valid'], true) &&
+            strpos($item->invoice_no, 'CN-') === 0
+        ) : ?>
+            <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to create a refund note for this credit note? This will be submitted to LHDN.', 'myinvoice-sync')); ?>');">
+                <input type="hidden" name="page" value="myinvoice-sync-invoices">
+                <?php wp_nonce_field('lhdn_refund_note_action', 'lhdn_refund_note_nonce'); ?>
+                <input type="hidden" name="refund_note_invoice_no" value="<?php echo esc_attr($item->invoice_no); ?>">
+                <button class="button button-small" type="submit"><?php esc_html_e('Refund Note', 'myinvoice-sync'); ?></button>
             </form>
         <?php endif; ?>
 
@@ -539,7 +570,7 @@ class LHDN_Submitted_Invoices_Table extends LHDN_Base_Invoice_Table {
         $current_page = $this->get_current_page();
         $search = $this->get_search_query();
 
-        // Build WHERE clause - exclude failed statuses
+        // Build WHERE clause - exclude failed statuses (include all document types)
         $where_clause = "WHERE status NOT IN ('retry', 'failed', 'invalid')";
         $where_values = [];
         
@@ -547,7 +578,7 @@ class LHDN_Submitted_Invoices_Table extends LHDN_Base_Invoice_Table {
         if ($search) {
             $like = '%' . $wpdb->esc_like($search) . '%';
             $where_clause .= " AND (invoice_no LIKE %s OR uuid LIKE %s OR status LIKE %s)";
-            $where_values = [$like, $like, $like];
+            $where_values = array_merge($where_values, [$like, $like, $like]);
         }
 
         // Get total count
@@ -573,6 +604,88 @@ class LHDN_Submitted_Invoices_Table extends LHDN_Base_Invoice_Table {
             $items_query = $wpdb->prepare($items_query, $per_page, $offset);
         }
         // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared above, table name from $wpdb->prefix is safe
+        $this->items = $wpdb->get_results($items_query);
+
+        $this->_column_headers = [$this->get_columns(), [], []];
+
+        $this->set_pagination_args([
+            'total_items' => $total_items,
+            'per_page'    => $per_page,
+            'total_pages' => ceil($total_items / $per_page),
+        ]);
+    }
+}
+
+/**
+ * Table for Credit Notes (invoice_no starting with CN-)
+ */
+class LHDN_Credit_Notes_Table extends LHDN_Base_Invoice_Table {
+    
+    protected function get_table_id() {
+        return 'credit_notes';
+    }
+    
+    protected function get_status_filter() {
+        // Show all statuses for credit notes
+        return [];
+    }
+    
+    protected function get_per_page() {
+        return 10;
+    }
+    
+    public function prepare_items() {
+        global $wpdb;
+
+        $per_page     = $this->get_per_page();
+        $current_page = $this->get_current_page();
+        $search       = $this->get_search_query();
+
+        // Only include pending credit notes (invoice_no starts with CN-)
+        // and NO corresponding refund note (RN-*) exists for the same base invoice number
+        $table = $wpdb->prefix . 'lhdn_myinvoice';
+        $where_clause = "WHERE t.invoice_no LIKE %s";
+        $where_values = ['CN-%'];
+
+        // Add search filter
+        if ($search) {
+            $like = '%' . $wpdb->esc_like($search) . '%';
+            $where_clause .= " AND (invoice_no LIKE %s OR uuid LIKE %s OR status LIKE %s)";
+            $where_values  = array_merge($where_values, [$like, $like, $like]);
+        }
+
+        // Build base SQL with LEFT JOIN to exclude credit notes that already have refund notes
+        $base_sql = "
+            FROM {$table} AS t
+            LEFT JOIN {$table} AS rn 
+                ON rn.invoice_no = REPLACE(t.invoice_no, 'CN-', 'RN-')
+            {$where_clause}
+            AND rn.id IS NULL
+        ";
+
+        // Get total count
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table from $wpdb->prefix is safe, user input is prepared
+        $total_items_query = "SELECT COUNT(*) {$base_sql}";
+        if (!empty($where_values)) {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $total_items_query = $wpdb->prepare($total_items_query, $where_values);
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectDBQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $total_items = (int) $wpdb->get_var($total_items_query);
+
+        // Get items for current page
+        $offset = ($current_page - 1) * $per_page;
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared -- $table from $wpdb->prefix is safe, user input is prepared
+        $items_query = "SELECT t.* {$base_sql} ORDER BY t.id DESC LIMIT %d OFFSET %d";
+        if (!empty($where_values)) {
+            $query_values = array_merge($where_values, [$per_page, $offset]);
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB_UnescapedDBParameter
+            $items_query = $wpdb->prepare($items_query, $query_values);
+        } else {
+            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB_UnescapedDBParameter
+            $items_query = $wpdb->prepare($items_query, $per_page, $offset);
+        }
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectDBQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB_UnescapedDBParameter
         $this->items = $wpdb->get_results($items_query);
 
         $this->_column_headers = [$this->get_columns(), [], []];
@@ -2462,6 +2575,19 @@ class LHDN_Admin {
             }
         }
 
+        if (isset($_POST['refund_note_invoice_no'])) {
+            check_admin_referer('lhdn_refund_note_action', 'lhdn_refund_note_nonce');
+
+            $invoiceNo = sanitize_text_field(wp_unslash($_POST['refund_note_invoice_no']));
+            $result = $this->invoice->create_refund_note_for_credit_note($invoiceNo);
+
+            if (is_array($result) && !$result['success']) {
+                echo '<div class="notice notice-error"><p>' . esc_html($result['message']) . '</p></div>';
+            } elseif (is_array($result) && $result['success']) {
+                echo '<div class="notice notice-success"><p>' . esc_html($result['message']) . '</p></div>';
+            }
+        }
+
         if (isset($_POST['resubmit_invoice_no'])) {
             check_admin_referer('lhdn_resubmit_action', 'lhdn_resubmit_nonce');
 
@@ -2524,8 +2650,20 @@ class LHDN_Admin {
 
             <hr style="margin: 30px 0;">
 
+            <h3>Pending Refund</h3>
+            <p class="description">Credit notes that do not yet have a corresponding refund note (invoice numbers prefixed with CN- and no RN- issued)</p>
+
+            <?php
+                $credit_notes_table = new LHDN_Credit_Notes_Table();
+                $credit_notes_table->prepare_items();
+                $credit_notes_table->search_box('Search credit notes', 'lhdn-search-credit-notes');
+                $credit_notes_table->display();
+            ?>
+
+            <hr style="margin: 30px 0;">
+
             <h3>Submitted Invoices</h3>
-            <p class="description">All other invoices</p>
+            <p class="description">All other invoices (excluding failed and credit notes)</p>
 
             <?php
                 $submitted_table = new LHDN_Submitted_Invoices_Table();

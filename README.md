@@ -4,10 +4,10 @@
 **Tags:** lhdn, myinvoice, myinvois, einvoice, woocommerce  
 **Requires at least:** 5.0  
 **Tested up to:** 6.9  
-**Stable tag:** 2.0.9  
+**Stable tag:** 2.0.11  
 **License:** GPLv2 or later  
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html  
-**Version:** 2.0.10  
+**Version:** 2.0.11  
 **Repository:** [GitHub](https://github.com/tikusl4ju/myinvoice-sync)  
 
 == Description ==
@@ -70,13 +70,16 @@ The MyInvoice Sync plugin automatically generates and submits invoices to the LH
 - **Cron Status**: Monitor cron job execution times
 - **Order Integration**: View LHDN submission status directly in WooCommerce orders list
 - **Bulk Actions**: Bulk submit orders to LHDN from WooCommerce orders list
+- **Pending Refund View**: Dedicated "Pending Refund" table showing credit notes that do not yet have a refund note issued
 
-### 💳 Credit Note Management
+### 💳 Credit & Refund Note Management
 
 - **Manual Credit Note Creation**: Create credit notes directly from submitted invoices in the admin panel
 - **Automatic Credit Note on Refund**: Automatically generates credit notes when WooCommerce refunds are processed
 - **Full Credit Support**: Supports full credit notes (all items refunded)
 - **Duplicate Prevention**: Prevents duplicate credit notes for the same invoice
+- **Manual Refund Note Creation**: Create refund notes directly from credit notes in the admin panel
+- **Refund Note Linking**: Refund notes are linked to the original invoice (via UUID) and exposed in both admin and customer views
 
 ## Installation
 
@@ -181,7 +184,7 @@ From the WooCommerce Orders list:
    - Direct links to LHDN portal
    - Item classification type
 
-### Creating Credit Notes
+### Creating Credit & Refund Notes
 
 #### Manual Credit Note Creation
 
@@ -207,6 +210,24 @@ When processing a refund in WooCommerce:
 
 **Note**: If a credit note was already created manually, the automatic refund process will skip creating a duplicate.
 
+#### Manual Refund Note Creation (from Admin)
+
+1. Navigate to **MyInvoice Sync > Invoices** in WordPress admin
+2. Locate a **Credit Note** record (invoice number starts with `CN-`)
+3. Click the **"Refund Note"** button in the Actions column
+4. The plugin will automatically:
+   - Create a full refund note for all items in the original invoice
+   - Submit it to LHDN with reference to the original invoice UUID
+   - Store it as a new invoice record with prefix `RN-` (e.g., `RN-12345`)
+
+#### Manual Refund Note Creation (from WooCommerce Orders)
+
+1. Navigate to **WooCommerce > Orders**
+2. For orders that already have a credit note, the **LHDN MyInvois** column will show:
+   - A **Credit Note** link
+   - A **"Refund Note"** button
+3. Click **"Refund Note"** to create and submit a refund note for that credit note
+
 ### Status Indicators
 
 - **Not Submitted**: Invoice has not been submitted yet
@@ -220,8 +241,18 @@ When processing a refund in WooCommerce:
 ### Credit Note Indicators
 
 - Credit notes are stored as separate invoice records with prefix "CN-" (e.g., "CN-12345")
-- Credit notes appear in the invoice list with their own status
+- Credit notes appear in the invoice list with their own status and **Type** = "Credit Note"
 - Credit notes reference the original invoice UUID in the LHDN submission
+
+### Refund Note Indicators
+
+- Refund notes are stored as separate invoice records with prefix "RN-" (e.g., "RN-12345")
+- Refund notes appear in the invoice list with **Type** = "Refund Note"
+- Credit notes that do not yet have a refund note appear in the **Pending Refund** table for quick follow-up
+- In WooCommerce **Orders**:
+  - The **LHDN MyInvois** column links to the Refund Note receipt when it exists (otherwise falls back to the Credit Note or original invoice)
+- In WooCommerce **My Account → Orders**:
+  - Refunded orders link to **"View Refund Note"** when a refund note exists (otherwise fall back to the Credit Note or original invoice)
 
 ## WooCommerce Integration
 
@@ -250,7 +281,9 @@ The plugin adds a "LHDN MyInvois" column to the WooCommerce orders list showing:
 - **Automatic Credit Note**: When a refund is processed in WooCommerce, the plugin automatically creates a credit note for the original invoice
 - **Duplicate Prevention**: If a credit note already exists (created manually or from a previous refund), the automatic process will skip creating a duplicate
 - **Full Credit Support**: Currently supports full credit notes (all items refunded)
-- **Works with All Orders**: Credit notes can be created for any submitted invoice, including test invoices
+- **Manual Refund Notes**: Admins can create refund notes from credit notes (invoices prefixed with `CN-`)
+- **Refund Note Linking**: Refund notes (prefixed with `RN-`) are linked to the original invoice and surfaced in both admin and customer order views
+- **Works with All Orders**: Credit and refund notes can be created for any submitted invoice, including test invoices
 
 ## Billing Circle Options
 
@@ -274,13 +307,13 @@ The plugin adds a "LHDN MyInvois" column to the WooCommerce orders list showing:
 3. Cron job runs every 10 minutes to check for ready invoices
 4. Invoices are automatically submitted when the delay period expires
 
-## Credit Notes
+## Credit & Refund Notes
 
 ### Overview
 
-Credit notes are used to reverse or adjust previously submitted invoices. The plugin supports both manual and automatic credit note creation.
+Credit and refund notes are used to reverse or adjust previously submitted invoices. The plugin supports both manual and automatic creation flows.
 
-### When to Use Credit Notes
+### When to Use Credit & Refund Notes
 
 - **Refunds**: When customers request refunds for completed orders
 - **Invoice Corrections**: When an invoice needs to be reversed or adjusted
@@ -324,6 +357,21 @@ Credit notes follow the LHDN UBL format with:
 - Invoice number format: `CN-{original_invoice_number}` (e.g., "CN-12345")
 - Each credit note has its own UUID and status tracking
 - Credit notes appear in the invoice list alongside regular invoices
+
+### Refund Note Features
+
+- **Full Refund Support**: Creates refund notes for all items in the original invoice (via the associated credit note)
+- **Automatic Linking**: Refund notes are automatically linked back to the original invoice via UUID reference
+- **Duplicate Prevention**: System prevents creating multiple refund notes for the same original invoice
+- **Works with Test Invoices**: Refund notes can be created even for test invoices without WooCommerce orders (using stored payload data)
+
+### Refund Note Structure
+
+Refund notes follow the LHDN UBL format with:
+- **InvoiceTypeCode**: Set to `"04"` (Refund Note), as per the official LHDN examples (e.g. [1.0 Refund Note Sample](https://sdk.myinvois.hasil.gov.my/files/sdksamples/1.0-Refund-Note-Sample.json))
+- **BillingReference**: Contains reference to the original invoice number and UUID
+- **Same Buyer/Seller Info**: Uses the same buyer and seller information as the original invoice
+- **Full Item List**: Includes all items from the original invoice with the same quantities and prices
 
 ## User Profile TIN Validation
 
