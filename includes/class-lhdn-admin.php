@@ -502,6 +502,21 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
             </form>
         <?php endif; ?>
 
+        <?php
+        // Show Complete button only for credit notes (CN-*) in Pending Refund table
+        if (
+            $this->get_table_id() === 'credit_notes' &&
+            strpos($item->invoice_no, 'CN-') === 0 &&
+            (empty($item->refund_complete) || $item->refund_complete == 0)
+        ) : ?>
+            <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to complete this refund without Refund Note?', 'myinvoice-sync')); ?>');">
+                <input type="hidden" name="page" value="myinvoice-sync-invoices">
+                <?php wp_nonce_field('lhdn_complete_credit_note_action', 'lhdn_complete_credit_note_nonce'); ?>
+                <input type="hidden" name="complete_credit_note_id" value="<?php echo esc_attr($item->id); ?>">
+                <button class="button button-small button-primary" type="submit"><?php esc_html_e('Complete', 'myinvoice-sync'); ?></button>
+            </form>
+        <?php endif; ?>
+
         <?php if (!$item->uuid || $item->status === 'queued' || $item->status === 'retry' || $item->status === 'failed' || $item->status === 'invalid' || $item->status === 'processing'): ?>
             <form method="post" action="" style="display:inline; margin: 0;">
                 <input type="hidden" name="page" value="myinvoice-sync-invoices">
@@ -528,7 +543,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
 }
 
 /**
- * Table for Failed Invoices (retry, failed, invalid)
+ * Table for Failed Submission (retry, failed, invalid)
  */
 class LHDN_Failed_Invoices_Table extends LHDN_Base_Invoice_Table {
     
@@ -655,12 +670,14 @@ class LHDN_Credit_Notes_Table extends LHDN_Base_Invoice_Table {
         }
 
         // Build base SQL with LEFT JOIN to exclude credit notes that already have refund notes
+        // Also exclude credit notes marked as complete (refund_complete = 1)
         $base_sql = "
             FROM {$table} AS t
             LEFT JOIN {$table} AS rn 
                 ON rn.invoice_no = REPLACE(t.invoice_no, 'CN-', 'RN-')
             {$where_clause}
             AND rn.id IS NULL
+            AND (t.refund_complete IS NULL OR t.refund_complete = 0)
         ";
 
         // Get total count
@@ -1209,7 +1226,16 @@ class LHDN_Admin {
         if (isset($_POST['fix_database_structure'])) {
             check_admin_referer('lhdn_fix_database');
             LHDN_Database::create_tables();
+            LHDN_Database::check_and_update_table_structure();
             echo '<div class="updated"><p>Database structure has been fixed. All missing tables and columns have been created.</p></div>';
+        }
+
+        // Handle manual database structure update
+        if (isset($_POST['update_database_structure'])) {
+            check_admin_referer('lhdn_update_database');
+            LHDN_Database::check_and_update_table_structure();
+            delete_transient('lhdn_db_structure_check'); // Clear transient to allow immediate re-check
+            echo '<div class="updated"><p>Database structure has been updated. Missing columns have been added.</p></div>';
         }
 
         // Handle database clear
@@ -2008,6 +2034,9 @@ class LHDN_Admin {
                 <p class="description">Current number of invoice records in the database.</p>
                 
                 <?php
+                // Update database structure before validation (ensures new columns are added)
+                LHDN_Database::check_and_update_table_structure();
+                
                 // Validate database structure
                 $validation = LHDN_Database::validate_database_structure();
                 $is_valid = $validation['valid'];
@@ -2021,6 +2050,13 @@ class LHDN_Admin {
                             ✓ All tables and columns are valid
                         </p>
                         <p class="description">All required database tables and columns exist and are properly configured.</p>
+                        <form method="post" style="margin-top: 10px;">
+                            <?php wp_nonce_field('lhdn_update_database'); ?>
+                            <button type="submit" name="update_database_structure" class="button button-secondary">
+                                Update Database Structure
+                            </button>
+                        </form>
+                        <p class="description" style="margin-top: 5px; font-size: 12px;">Click to manually check and add any missing columns (e.g., after plugin update).</p>
                     <?php else: ?>
                         <p style="color: #dc3232; font-weight: bold;">
                             ✗ Database structure issues found
@@ -2634,17 +2670,51 @@ class LHDN_Admin {
                 }
             }
         }
+
+        if (isset($_POST['complete_credit_note_id'])) {
+            check_admin_referer('lhdn_complete_credit_note_action', 'lhdn_complete_credit_note_nonce');
+            
+            $credit_note_id = isset($_POST['complete_credit_note_id']) ? absint(wp_unslash($_POST['complete_credit_note_id'])) : 0;
+            if ($credit_note_id > 0) {
+                global $wpdb;
+                $table = $wpdb->prefix . 'lhdn_myinvoice';
+                
+                // Get credit note details for logging
+                // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Table name from $wpdb->prefix is safe
+                $credit_note = $wpdb->get_row($wpdb->prepare("SELECT invoice_no FROM {$table} WHERE id = %d AND invoice_no LIKE %s", $credit_note_id, 'CN-%'));
+                
+                if ($credit_note) {
+                    // Mark credit note as complete
+                    $result = $wpdb->update(
+                        $table,
+                        ['refund_complete' => 1],
+                        ['id' => $credit_note_id],
+                        ['%d'],
+                        ['%d']
+                    );
+                    
+                    if ($result !== false) {
+                        LHDN_Logger::log("Marked credit note as complete: {$credit_note->invoice_no} (ID: {$credit_note_id})");
+                        echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Credit note marked as complete. It will now appear in Submitted Invoices.', 'myinvoice-sync') . '</p></div>';
+                    } else {
+                        echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('Failed to mark credit note as complete.', 'myinvoice-sync') . '</p></div>';
+                    }
+                } else {
+                    echo '<div class="notice notice-error is-dismissible"><p>' . esc_html__('Credit note record not found.', 'myinvoice-sync') . '</p></div>';
+                }
+            }
+        }
         ?>
         <div class="wrap">
             <h2>MyInvoice Sync</h2>
 
-            <h3>Failed Invoices</h3>
+            <h3>Failed Submission</h3>
             <p class="description">Invoices with status: retry, failed, or invalid</p>
 
             <?php
                 $failed_table = new LHDN_Failed_Invoices_Table();
                 $failed_table->prepare_items();
-                $failed_table->search_box('Search failed invoices', 'lhdn-search-failed');
+                $failed_table->search_box('Search failed submissions', 'lhdn-search-failed');
                 $failed_table->display();
             ?>
 
@@ -2663,7 +2733,7 @@ class LHDN_Admin {
             <hr style="margin: 30px 0;">
 
             <h3>Submitted Invoices</h3>
-            <p class="description">All other invoices (excluding failed and credit notes)</p>
+            <p class="description">All submitted invoices including completed credit notes (excluding failed invoices)</p>
 
             <?php
                 $submitted_table = new LHDN_Submitted_Invoices_Table();

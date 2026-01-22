@@ -32,6 +32,7 @@ class LHDN_Database {
                 retry_count INT DEFAULT 0,
                 queue_status VARCHAR(50),
                 queue_date DATETIME,
+                refund_complete TINYINT(1) DEFAULT 0,
                 created_at DATETIME,
                 updated_at DATETIME
             ) {$charset};
@@ -383,10 +384,16 @@ class LHDN_Database {
                     'after' => 'queue_status',
                     'null' => 'YES',
                 ],
+                'refund_complete' => [
+                    'type' => 'TINYINT(1)',
+                    'extra' => 'DEFAULT 0',
+                    'after' => 'queue_date',
+                    'null' => 'NO',
+                ],
                 'created_at' => [
                     'type' => 'DATETIME',
                     'extra' => '',
-                    'after' => 'queue_date',
+                    'after' => 'refund_complete',
                     'null' => 'YES',
                 ],
                 'updated_at' => [
@@ -695,7 +702,8 @@ class LHDN_Database {
             'lhdn_myinvoice' => [
                 'id', 'invoice_no', 'order_id', 'uuid', 'longid', 'item_class', 
                 'document_hash', 'payload', 'status', 'code', 'response', 
-                'retry_count', 'queue_status', 'queue_date', 'created_at', 'updated_at'
+                'retry_count', 'queue_status', 'queue_date', 'refund_complete', 
+                'created_at', 'updated_at'
             ],
             'lhdn_tokens' => [
                 'id', 'access_token', 'expires_at', 'created_at'
