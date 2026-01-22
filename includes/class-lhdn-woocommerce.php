@@ -449,17 +449,26 @@ class LHDN_WooCommerce {
                 esc_html__('Credit Note', 'myinvoice-sync')
             );
 
-            // Show Refund Note button below the Credit Note link
-            ?>
-            <br>
-            <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=myinvoice-sync-invoices')); ?>" style="margin-top: 3px;">
-                <?php wp_nonce_field('lhdn_refund_note_action', 'lhdn_refund_note_nonce'); ?>
-                <input type="hidden" name="refund_note_invoice_no" value="<?php echo esc_attr($credit_note_no); ?>">
-                <button type="submit" class="button button-small" onclick="return confirm('<?php echo esc_js(__('Are you sure you want to create a refund note for this credit note? This will be submitted to LHDN.', 'myinvoice-sync')); ?>');">
-                    <?php esc_html_e('Refund Note', 'myinvoice-sync'); ?>
-                </button>
-            </form>
-            <?php
+            // Check if refund note already exists before showing button
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $refund_note_exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$wpdb->prefix}lhdn_myinvoice WHERE invoice_no = %s LIMIT 1",
+                $refund_note_no
+            ));
+
+            // Only show Refund Note button if no refund note exists and credit note is valid
+            if (!$refund_note_exists && in_array($cn_row->status, ['submitted', 'valid'], true)) {
+                ?>
+                <br>
+                <form method="post" action="<?php echo esc_url(admin_url('admin.php?page=myinvoice-sync-invoices')); ?>" style="margin-top: 3px;">
+                    <?php wp_nonce_field('lhdn_refund_note_action', 'lhdn_refund_note_nonce'); ?>
+                    <input type="hidden" name="refund_note_invoice_no" value="<?php echo esc_attr($credit_note_no); ?>">
+                    <button type="submit" class="button button-small" onclick="return confirm('<?php echo esc_js(__('Are you sure you want to create a refund note for this credit note? This will be submitted to LHDN and the credit note will be automatically marked as complete.', 'myinvoice-sync')); ?>');">
+                        <?php esc_html_e('Refund Note', 'myinvoice-sync'); ?>
+                    </button>
+                </form>
+                <?php
+            }
             return;
         }
 

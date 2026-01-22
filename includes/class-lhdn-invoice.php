@@ -1128,6 +1128,25 @@ class LHDN_Invoice {
             ];
         }
 
+        // Update the credit note's refund_complete field to 1 since refund note was created
+        // Get the credit note record
+        // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+        $credit_note_record = $wpdb->get_row($wpdb->prepare(
+            "SELECT id FROM {$table} WHERE invoice_no = %s LIMIT 1",
+            $creditNoteInvoiceNo
+        ));
+
+        if ($credit_note_record) {
+            $wpdb->update(
+                $table,
+                ['refund_complete' => 1],
+                ['id' => $credit_note_record->id],
+                ['%d'],
+                ['%d']
+            );
+            LHDN_Logger::log("Marked credit note {$creditNoteInvoiceNo} as complete (refund note created)");
+        }
+
         return [
             'success' => true,
             'message' => __('Refund note submitted successfully.', 'myinvoice-sync'),

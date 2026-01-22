@@ -473,49 +473,91 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
 
         <?php
         // Show Credit Note button only for normal invoices (not CN-* or RN-*) with submitted/valid status
+        // and only if no credit note already exists
         if (
             $item->uuid &&
             in_array($item->status, ['submitted', 'valid'], true) &&
             strpos($item->invoice_no, 'CN-') !== 0 &&
             strpos($item->invoice_no, 'RN-') !== 0
-        ) : ?>
-            <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to create a credit note for this invoice? This will be submitted to LHDN.', 'myinvoice-sync')); ?>');">
-                <input type="hidden" name="page" value="myinvoice-sync-invoices">
-                <?php wp_nonce_field('lhdn_credit_note_action', 'lhdn_credit_note_nonce'); ?>
-                <input type="hidden" name="credit_note_invoice_no" value="<?php echo esc_attr($item->invoice_no); ?>">
-                <button class="button button-small" type="submit"><?php esc_html_e('Credit Note', 'myinvoice-sync'); ?></button>
-            </form>
-        <?php endif; ?>
+        ) {
+            global $wpdb;
+            $table = $wpdb->prefix . 'lhdn_myinvoice';
+            $credit_note_no = 'CN-' . $item->invoice_no;
+            
+            // Check if credit note already exists
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $credit_note_exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table} WHERE invoice_no = %s LIMIT 1",
+                $credit_note_no
+            ));
+            
+            // Only show button if no credit note exists
+            if (!$credit_note_exists) : ?>
+                <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to create a credit note for this invoice? This will be submitted to LHDN.', 'myinvoice-sync')); ?>');">
+                    <input type="hidden" name="page" value="myinvoice-sync-invoices">
+                    <?php wp_nonce_field('lhdn_credit_note_action', 'lhdn_credit_note_nonce'); ?>
+                    <input type="hidden" name="credit_note_invoice_no" value="<?php echo esc_attr($item->invoice_no); ?>">
+                    <button class="button button-small" type="submit"><?php esc_html_e('Credit Note', 'myinvoice-sync'); ?></button>
+                </form>
+            <?php endif;
+        }
+        ?>
 
         <?php
-        // Show Refund Note button only for credit notes (CN-*) with submitted/valid status
-        if (
-            $item->uuid &&
-            in_array($item->status, ['submitted', 'valid'], true) &&
-            strpos($item->invoice_no, 'CN-') === 0
-        ) : ?>
-            <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to create a refund note for this credit note? This will be submitted to LHDN.', 'myinvoice-sync')); ?>');">
-                <input type="hidden" name="page" value="myinvoice-sync-invoices">
-                <?php wp_nonce_field('lhdn_refund_note_action', 'lhdn_refund_note_nonce'); ?>
-                <input type="hidden" name="refund_note_invoice_no" value="<?php echo esc_attr($item->invoice_no); ?>">
-                <button class="button button-small" type="submit"><?php esc_html_e('Refund Note', 'myinvoice-sync'); ?></button>
-            </form>
-        <?php endif; ?>
-
-        <?php
-        // Show Complete button only for credit notes (CN-*) in Pending Refund table
-        if (
-            $this->get_table_id() === 'credit_notes' &&
-            strpos($item->invoice_no, 'CN-') === 0 &&
-            (empty($item->refund_complete) || $item->refund_complete == 0)
-        ) : ?>
-            <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to complete this refund without Refund Note?', 'myinvoice-sync')); ?>');">
-                <input type="hidden" name="page" value="myinvoice-sync-invoices">
-                <?php wp_nonce_field('lhdn_complete_credit_note_action', 'lhdn_complete_credit_note_nonce'); ?>
-                <input type="hidden" name="complete_credit_note_id" value="<?php echo esc_attr($item->id); ?>">
-                <button class="button button-small button-primary" type="submit"><?php esc_html_e('Complete', 'myinvoice-sync'); ?></button>
-            </form>
-        <?php endif; ?>
+        // Refund Note and Complete button logic for credit notes (CN-*)
+        if (strpos($item->invoice_no, 'CN-') === 0) {
+            global $wpdb;
+            $table = $wpdb->prefix . 'lhdn_myinvoice';
+            
+            // Get original invoice number (remove CN- prefix)
+            $original_invoice_no = substr($item->invoice_no, 3);
+            $refund_note_no = 'RN-' . $original_invoice_no;
+            
+            // Check if refund note already exists
+            // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+            $refund_note_exists = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table} WHERE invoice_no = %s LIMIT 1",
+                $refund_note_no
+            ));
+            
+            $has_refund_note = ($refund_note_exists > 0);
+            $is_complete = (!empty($item->refund_complete) && $item->refund_complete == 1);
+            
+            // Show Refund Note button only if:
+            // - Credit note has valid status and UUID
+            // - No refund note exists yet
+            // (Allow even if marked as complete - user may want to create refund note later)
+            if (
+                $item->uuid &&
+                in_array($item->status, ['submitted', 'valid'], true) &&
+                !$has_refund_note
+            ) : ?>
+                <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to create a refund note for this credit note? This will be submitted to LHDN and the credit note will be automatically marked as complete.', 'myinvoice-sync')); ?>');">
+                    <input type="hidden" name="page" value="myinvoice-sync-invoices">
+                    <?php wp_nonce_field('lhdn_refund_note_action', 'lhdn_refund_note_nonce'); ?>
+                    <input type="hidden" name="refund_note_invoice_no" value="<?php echo esc_attr($item->invoice_no); ?>">
+                    <button class="button button-small" type="submit"><?php esc_html_e('Refund Note', 'myinvoice-sync'); ?></button>
+                </form>
+            <?php endif;
+            
+            // Show Complete button only if:
+            // - In Pending Refund table
+            // - No refund note exists
+            // - Not already marked as complete
+            if (
+                $this->get_table_id() === 'credit_notes' &&
+                !$has_refund_note &&
+                !$is_complete
+            ) : ?>
+                <form method="post" action="" style="display:inline; margin: 0;" onsubmit="return confirm('<?php echo esc_js(__('Are you sure you want to complete this refund without Refund Note?', 'myinvoice-sync')); ?>');">
+                    <input type="hidden" name="page" value="myinvoice-sync-invoices">
+                    <?php wp_nonce_field('lhdn_complete_credit_note_action', 'lhdn_complete_credit_note_nonce'); ?>
+                    <input type="hidden" name="complete_credit_note_id" value="<?php echo esc_attr($item->id); ?>">
+                    <button class="button button-small button-primary" type="submit"><?php esc_html_e('Complete', 'myinvoice-sync'); ?></button>
+                </form>
+            <?php endif;
+        }
+        ?>
 
         <?php if (!$item->uuid || $item->status === 'queued' || $item->status === 'retry' || $item->status === 'failed' || $item->status === 'invalid' || $item->status === 'processing'): ?>
             <form method="post" action="" style="display:inline; margin: 0;">
