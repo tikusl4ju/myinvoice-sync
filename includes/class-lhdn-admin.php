@@ -2751,7 +2751,7 @@ class LHDN_Admin {
             <h2>MyInvoice Sync</h2>
 
             <h3>Failed Submission</h3>
-            <p class="description">Invoices with status: retry, failed, or invalid</p>
+            <p class="description">Invoices with status: retry, failed, or invalid. Please check the Debug Logs for more details.</p>
 
             <?php
                 $failed_table = new LHDN_Failed_Invoices_Table();
@@ -2763,7 +2763,7 @@ class LHDN_Admin {
             <hr style="margin: 30px 0;">
 
             <h3>Pending Refund</h3>
-            <p class="description">Credit notes that do not yet have a corresponding refund note (invoice numbers prefixed with CN- and no RN- issued)</p>
+            <p class="description">Credit notes that do not yet have a corresponding refund note (invoice numbers prefixed with CN- and no RN- issued). <br /> To complete the refund, click the "Complete" button or issue a refund note.</p>
 
             <?php
                 $credit_notes_table = new LHDN_Credit_Notes_Table();
@@ -2775,7 +2775,7 @@ class LHDN_Admin {
             <hr style="margin: 30px 0;">
 
             <h3>Submitted Invoices</h3>
-            <p class="description">All submitted invoices including completed credit notes (excluding failed invoices)</p>
+            <p class="description">All submitted invoices including completed credit notes (excluding failed invoices).</p>
 
             <?php
                 $submitted_table = new LHDN_Submitted_Invoices_Table();
@@ -2785,7 +2785,7 @@ class LHDN_Admin {
             ?>
 
             <?php if (LHDN_Settings::get('debug_enabled')): ?>
-                <h3>Live Logs</h3>
+                <h3>Debug Logs</h3>
                 <div id="log" style="background:#111;color:#0f0;height:300px;overflow:auto;padding:10px;font-family:monospace"></div>
                 <br />
                 <span>
