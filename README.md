@@ -563,6 +563,14 @@ This plugin connects to the LHDN (Lembaga Hasil Dalam Negeri) MyInvois API to su
 - The service validates Tax Identification Numbers (TIN) for customers
 - The service provides invoice status updates and document retrieval
 
+**Where the service is hosted (domains):**
+- API base URLs are configured in the plugin settings and typically point to:
+  - Sandbox (Pre-Production): `https://preprod-api.myinvois.hasil.gov.my`
+  - Production: `https://api.myinvois.hasil.gov.my`
+- Document viewing links in the admin UI point to the official MyInvois portal, for example:
+  - Sandbox portal: `https://preprod.myinvois.hasil.gov.my`
+  - Production portal: `https://myinvois.hasil.gov.my`
+
 **What data is sent and when:**
 - **Invoice Data**: When a WooCommerce order reaches the configured status (completed/processing or after delay), the plugin sends invoice data including:
   - Invoice number, date, and amounts

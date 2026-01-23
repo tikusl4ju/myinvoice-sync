@@ -866,12 +866,18 @@ class LHDN_Admin {
             // Localize script to pass ajaxurl
             wp_localize_script('jquery', 'lhdnAjax', array(
                 'ajaxurl' => admin_url('admin-ajax.php'),
+                'logsNonce' => wp_create_nonce('lhdn_get_logs'),
             ));
             
             $logs_script = "(function() {
                 function loadLhdnLogs() {
                     var ajaxUrl = (typeof lhdnAjax !== 'undefined' && lhdnAjax.ajaxurl) ? lhdnAjax.ajaxurl : (typeof ajaxurl !== 'undefined' ? ajaxurl : '" . esc_js(admin_url('admin-ajax.php')) . "');
-                    fetch(ajaxUrl + '?action=lhdn_get_logs')
+                    var nonce = (typeof lhdnAjax !== 'undefined' && lhdnAjax.logsNonce) ? lhdnAjax.logsNonce : '';
+                    var url = ajaxUrl + '?action=lhdn_get_logs';
+                    if (nonce) {
+                        url += '&nonce=' + encodeURIComponent(nonce);
+                    }
+                    fetch(url)
                         .then(function(r) { return r.json(); })
                         .then(function(d) {
                             var logEl = document.getElementById('log');

@@ -340,6 +340,16 @@ class LHDN_MyInvoice_Plugin {
      * AJAX get logs
      */
     public function ajax_get_logs() {
+        // Only allow privileged users to read debug logs
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Insufficient permissions'], 403);
+        }
+
+        // Verify nonce passed from admin page script
+        if (!isset($_GET['nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['nonce'])), 'lhdn_get_logs')) {
+            wp_send_json_error(['message' => 'Invalid nonce'], 400);
+        }
+
         wp_send_json(get_option('lhdn_logs', []));
     }
 
