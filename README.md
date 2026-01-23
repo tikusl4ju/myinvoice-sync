@@ -368,7 +368,7 @@ Credit notes follow the LHDN UBL format with:
 ### Refund Note Structure
 
 Refund notes follow the LHDN UBL format with:
-- **InvoiceTypeCode**: Set to `"04"` (Refund Note), as per the official LHDN examples (e.g. [1.0 Refund Note Sample](https://sdk.myinvois.hasil.gov.my/files/sdksamples/1.0-Refund-Note-Sample.json))
+- **InvoiceTypeCode**: Set to `"04"` (Refund Note)
 - **BillingReference**: Contains reference to the original invoice number and UUID
 - **Same Buyer/Seller Info**: Uses the same buyer and seller information as the original invoice
 - **Full Item List**: Includes all items from the original invoice with the same quantities and prices
