@@ -33,40 +33,54 @@ class LHDN_User_Profile {
         <h2>LHDN e-Invoicing</h2>
 
         <table class="form-table">
-
-            <?php if ($validation) : ?>
             <tr>
+                <th></th>
+                <td>
+                    <label>
+                        <input type="checkbox"
+                               name="lhdn_not_malaysian"
+                               id="lhdn_not_malaysian"
+                               value="1"
+                               <?php checked(get_user_meta($user->ID, 'lhdn_not_malaysian', true), '1'); ?>>
+                        I am not a Malaysian citizen or a Malaysia permanent resident.
+                    </label>
+                    <p class="description">Check this if you are not a Malaysian citizen or a Malaysia permanent resident. TIN fields will be hidden.</p>
+                </td>
+            </tr>
+
+            <tr class="lhdn-tin-fields" id="lhdn-tin-validation-row" style="<?php echo get_user_meta($user->ID, 'lhdn_not_malaysian', true) === '1' ? 'display:none;' : ''; ?>">
                 <th>TIN Validation Status</th>
                 <td>
-                    <?php
-                    switch ($validation) {
-                        case 'valid':
-                            echo '<span style="color:#2ecc71;font-weight:600;">✔ Valid</span>';
-                            break;
-                        case 'invalid':
-                            echo '<span style="color:#e74c3c;font-weight:600;">✖ Invalid</span>';
-                            break;
-                        case 'error':
-                            echo '<span style="color:#f39c12;font-weight:600;">⚠ Error</span>';
-                            break;
-                        case 'skipped':
-                            echo '<span style="color:#777;font-weight:600;">— Not provided</span>';
-                            break;
-                        default:
-                            echo '<span style="color:#777;">⚠ Not validated</span>';
-                    }
-                    ?>
+                    <?php if ($validation) : ?>
+                        <?php
+                        switch ($validation) {
+                            case 'valid':
+                                echo '<span style="color:#2ecc71;font-weight:600;">✔ Valid</span>';
+                                break;
+                            case 'invalid':
+                                echo '<span style="color:#e74c3c;font-weight:600;">✖ Invalid</span>';
+                                break;
+                            case 'error':
+                                echo '<span style="color:#f39c12;font-weight:600;">⚠ Error</span>';
+                                break;
+                            case 'skipped':
+                                echo '<span style="color:#777;font-weight:600;">— Not provided</span>';
+                                break;
+                            default:
+                                echo '<span style="color:#777;">⚠ Not validated</span>';
+                        }
+                        ?>
 
-                    <?php if ($msg) : ?>
-                        <p class="description">
-                            <?php echo esc_html($msg); ?>
-                        </p>
+                        <?php if ($msg) : ?>
+                            <p class="description">
+                                <?php echo esc_html($msg); ?>
+                            </p>
+                        <?php endif; ?>
                     <?php endif; ?>
                 </td>
             </tr>
-            <?php endif; ?>
 
-            <tr>
+            <tr class="lhdn-tin-fields" style="<?php echo get_user_meta($user->ID, 'lhdn_not_malaysian', true) === '1' ? 'display:none;' : ''; ?>">
                 <th><label for="lhdn_tin">TIN Number</label></th>
                 <td>
                     <input type="text"
@@ -78,7 +92,7 @@ class LHDN_User_Profile {
                 </td>
             </tr>
 
-            <tr>
+            <tr class="lhdn-tin-fields" style="<?php echo get_user_meta($user->ID, 'lhdn_not_malaysian', true) === '1' ? 'display:none;' : ''; ?>">
                 <th><label for="lhdn_id_type">ID Type</label></th>
                 <td>
                     <select name="lhdn_id_type" id="lhdn_id_type">
@@ -100,7 +114,7 @@ class LHDN_User_Profile {
                 </td>
             </tr>
 
-            <tr>
+            <tr class="lhdn-tin-fields" style="<?php echo get_user_meta($user->ID, 'lhdn_not_malaysian', true) === '1' ? 'display:none;' : ''; ?>">
                 <th><label for="lhdn_id_value">ID Value</label></th>
                 <td>
                     <input type="text"
@@ -113,6 +127,23 @@ class LHDN_User_Profile {
             </tr>
 
         </table>
+        <script>
+        (function() {
+            var checkbox = document.getElementById('lhdn_not_malaysian');
+            var tinFields = document.querySelectorAll('.lhdn-tin-fields');
+            
+            if (checkbox) {
+                function toggleFields() {
+                    tinFields.forEach(function(field) {
+                        field.style.display = checkbox.checked ? 'none' : '';
+                    });
+                }
+                
+                checkbox.addEventListener('change', toggleFields);
+                toggleFields(); // Initial state
+            }
+        })();
+        </script>
         <?php
     }
 
@@ -151,6 +182,18 @@ class LHDN_User_Profile {
         }
 
         // Nonce verified above, safe to access $_POST
+        $not_malaysian = isset($_POST['lhdn_not_malaysian']) ? '1' : '0';
+        update_user_meta($user_id, 'lhdn_not_malaysian', $not_malaysian);
+        
+        // If user is not Malaysian, clear TIN data and skip validation
+        if ($not_malaysian === '1') {
+            delete_user_meta($user_id, 'lhdn_tin');
+            delete_user_meta($user_id, 'lhdn_id_type');
+            delete_user_meta($user_id, 'lhdn_id_value');
+            update_user_meta($user_id, 'lhdn_tin_validation', 'skipped');
+            return;
+        }
+        
         $tin      = isset($_POST['lhdn_tin']) ? sanitize_text_field(wp_unslash($_POST['lhdn_tin'])) : '';
         $id_type  = isset($_POST['lhdn_id_type']) ? sanitize_text_field(wp_unslash($_POST['lhdn_id_type'])) : '';
         $id_value = isset($_POST['lhdn_id_value']) ? sanitize_text_field(wp_unslash($_POST['lhdn_id_value'])) : '';
@@ -227,6 +270,20 @@ class LHDN_User_Profile {
 
         <fieldset>
             <legend><strong>LHDN e-Invoicing</strong></legend>
+            
+            <p class="form-row form-row-wide">
+                <label>
+                    <input type="checkbox"
+                           name="lhdn_not_malaysian"
+                           id="lhdn_not_malaysian_myaccount"
+                           value="1"
+                           <?php checked(get_user_meta($user_id, 'lhdn_not_malaysian', true), '1'); ?>>
+                    I am not a Malaysian or Malaysia PR citizen
+                </label>
+                <span class="description">Check this if you are not a Malaysian citizen or Malaysia PR. TIN fields will be hidden.</span>
+            </p>
+
+            <div class="lhdn-tin-fields-myaccount" style="<?php echo get_user_meta($user_id, 'lhdn_not_malaysian', true) === '1' ? 'display:none;' : ''; ?>">
             <?php if ($validation) : ?>
                 <p>
                     <strong>TIN Status:</strong>
@@ -289,10 +346,28 @@ class LHDN_User_Profile {
                        id="lhdn_id_value"
                        value="<?php echo esc_attr($id_value); ?>" />
             </p>
-
+            </div>
         </fieldset>
         <br />
-        <?php if($validation !== 'valid'){ ?>
+        <script>
+        (function() {
+            var checkbox = document.getElementById('lhdn_not_malaysian_myaccount');
+            var tinFields = document.querySelector('.lhdn-tin-fields-myaccount');
+            
+            if (checkbox && tinFields) {
+                function toggleFields() {
+                    tinFields.style.display = checkbox.checked ? 'none' : '';
+                }
+                
+                checkbox.addEventListener('change', toggleFields);
+                toggleFields(); // Initial state
+            }
+        })();
+        </script>
+        <?php 
+        $not_malaysian = get_user_meta($user_id, 'lhdn_not_malaysian', true);
+        if($validation !== 'valid' && $not_malaysian !== '1'){ 
+        ?>
         <p>Check your TIN number via the MyTax Portal (e-Daftar or Your Profile Information) or contact the HASiL Contact Centre (03-8911 1000); or visit the nearest LHDNM offices.</p>
         <?php
         }
@@ -340,6 +415,14 @@ class LHDN_User_Profile {
         }
 
         $user_id = get_current_user_id();
+        
+        // Check if user marked as not Malaysian - hide badge if yes
+        $not_malaysian = get_user_meta($user_id, 'lhdn_not_malaysian', true);
+        $is_not_malaysian = ($not_malaysian === '1');
+        
+        if ($is_not_malaysian) {
+            return;
+        }
         
         // Check if user's country is Malaysia - hide badge if not
         $billing_country = '';
@@ -403,7 +486,7 @@ class LHDN_User_Profile {
                 </div>
             <?php endif; ?>
 
-            <?php if ($status !== 'valid') : ?>
+            <?php if ($status !== 'valid' && !$is_not_malaysian) : ?>
                 <div style="margin-top:8px;">
                     Check your TIN number via the MyTax Portal (e-Daftar or Your Profile Information) or contact the HASiL Contact Centre (03-8911 1000); or visit the nearest LHDNM offices. <br />
                     <a href="<?php echo esc_url(wc_get_page_permalink('myaccount') . 'edit-account/'); ?>">

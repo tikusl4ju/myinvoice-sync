@@ -2091,14 +2091,7 @@ class LHDN_Admin {
                         <p style="color: #46b450; font-weight: bold;">
                             ✓ All tables and columns are valid
                         </p>
-                        <p class="description">All required database tables and columns exist and are properly configured.</p>
-                        <form method="post" style="margin-top: 10px;">
-                            <?php wp_nonce_field('lhdn_update_database'); ?>
-                            <button type="submit" name="update_database_structure" class="button button-secondary">
-                                Update Database Structure
-                            </button>
-                        </form>
-                        <p class="description" style="margin-top: 5px; font-size: 12px;">Click to manually check and add any missing columns (e.g., after plugin update).</p>
+                        <p class="description">All required database tables and columns exist and are properly configured. Database structure is up to date.</p>
                     <?php else: ?>
                         <p style="color: #dc3232; font-weight: bold;">
                             ✗ Database structure issues found

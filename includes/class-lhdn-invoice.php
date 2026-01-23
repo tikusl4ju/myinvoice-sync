@@ -352,14 +352,16 @@ class LHDN_Invoice {
 
         $user_id = $order->get_user_id();
 
-        $is_foreign = ($order->get_billing_country() !== 'MY');
+        // Check if user marked as not Malaysian
+        $not_malaysian = $user_id ? (get_user_meta($user_id, 'lhdn_not_malaysian', true) === '1') : false;
+        $is_foreign = ($order->get_billing_country() !== 'MY') || $not_malaysian;
         $tin     = $is_foreign ? 'EI00000000020' : 'EI00000000010';
         $id_type = $is_foreign ? 'PASSPORT' : 'NRIC';
         $id_value = 'NA';
 
         $item_classification_code = $is_foreign ? '008' : '004';
 
-        if ($user_id) {
+        if ($user_id && !$not_malaysian) {
             $status = get_user_meta($user_id, 'lhdn_tin_validation', true);
             if($status === 'valid'){
                 $tin      = get_user_meta($user_id, 'lhdn_tin', true) ?: $tin;
@@ -590,14 +592,16 @@ class LHDN_Invoice {
             // Build buyer details from WooCommerce order
             $user_id = $order->get_user_id();
 
-            $is_foreign = ($order->get_billing_country() !== 'MY');
+            // Check if user marked as not Malaysian
+            $not_malaysian = $user_id ? (get_user_meta($user_id, 'lhdn_not_malaysian', true) === '1') : false;
+            $is_foreign = ($order->get_billing_country() !== 'MY') || $not_malaysian;
             $tin     = $is_foreign ? 'EI00000000020' : 'EI00000000010';
             $id_type = $is_foreign ? 'PASSPORT' : 'NRIC';
             $id_value = 'NA';
 
             $item_classification_code = $is_foreign ? '008' : '004';
 
-            if ($user_id) {
+            if ($user_id && !$not_malaysian) {
                 $status = get_user_meta($user_id, 'lhdn_tin_validation', true);
                 if ($status === 'valid') {
                     $tin      = get_user_meta($user_id, 'lhdn_tin', true) ?: $tin;
@@ -902,14 +906,16 @@ class LHDN_Invoice {
             // Build buyer details from WooCommerce order
             $user_id = $order->get_user_id();
 
-            $is_foreign = ($order->get_billing_country() !== 'MY');
+            // Check if user marked as not Malaysian
+            $not_malaysian = $user_id ? (get_user_meta($user_id, 'lhdn_not_malaysian', true) === '1') : false;
+            $is_foreign = ($order->get_billing_country() !== 'MY') || $not_malaysian;
             $tin     = $is_foreign ? 'EI00000000020' : 'EI00000000010';
             $id_type = $is_foreign ? 'PASSPORT' : 'NRIC';
             $id_value = 'NA';
 
             $item_classification_code = $is_foreign ? '008' : '004';
 
-            if ($user_id) {
+            if ($user_id && !$not_malaysian) {
                 $status = get_user_meta($user_id, 'lhdn_tin_validation', true);
                 if ($status === 'valid') {
                     $tin      = get_user_meta($user_id, 'lhdn_tin', true) ?: $tin;
@@ -1191,14 +1197,16 @@ class LHDN_Invoice {
 
         $user_id = $order->get_user_id();
 
-        $is_foreign = ($order->get_billing_country() !== 'MY');
+        // Check if user marked as not Malaysian
+        $not_malaysian = $user_id ? (get_user_meta($user_id, 'lhdn_not_malaysian', true) === '1') : false;
+        $is_foreign = ($order->get_billing_country() !== 'MY') || $not_malaysian;
         $tin     = $is_foreign ? 'EI00000000020' : 'EI00000000010';
         $id_type = $is_foreign ? 'PASSPORT' : 'NRIC';
         $id_value = 'NA';
 
         $item_classification_code = $is_foreign ? '008' : '004';
 
-        if ($user_id) {
+        if ($user_id && !$not_malaysian) {
             $status = get_user_meta($user_id, 'lhdn_tin_validation', true);
             if($status === 'valid'){
                 $tin      = get_user_meta($user_id, 'lhdn_tin', true) ?: $tin;
