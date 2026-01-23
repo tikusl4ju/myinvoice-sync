@@ -131,12 +131,28 @@ class LHDN_User_Profile {
         (function() {
             var checkbox = document.getElementById('lhdn_not_malaysian');
             var tinFields = document.querySelectorAll('.lhdn-tin-fields');
+            var tinInput  = document.getElementById('lhdn_tin');
+            var idType    = document.getElementById('lhdn_id_type');
+            var idValue   = document.getElementById('lhdn_id_value');
             
             if (checkbox) {
                 function toggleFields() {
                     tinFields.forEach(function(field) {
                         field.style.display = checkbox.checked ? 'none' : '';
                     });
+
+                    // If checked, clear the TIN fields immediately
+                    if (checkbox.checked) {
+                        if (tinInput) {
+                            tinInput.value = '';
+                        }
+                        if (idType) {
+                            idType.value = '';
+                        }
+                        if (idValue) {
+                            idValue.value = '';
+                        }
+                    }
                 }
                 
                 checkbox.addEventListener('change', toggleFields);
@@ -353,10 +369,26 @@ class LHDN_User_Profile {
         (function() {
             var checkbox = document.getElementById('lhdn_not_malaysian_myaccount');
             var tinFields = document.querySelector('.lhdn-tin-fields-myaccount');
+            var tinInput  = document.getElementById('lhdn_tin');
+            var idType    = document.getElementById('lhdn_id_type');
+            var idValue   = document.getElementById('lhdn_id_value');
             
             if (checkbox && tinFields) {
                 function toggleFields() {
                     tinFields.style.display = checkbox.checked ? 'none' : '';
+
+                    // If checked, clear the TIN fields immediately
+                    if (checkbox.checked) {
+                        if (tinInput) {
+                            tinInput.value = '';
+                        }
+                        if (idType) {
+                            idType.value = '';
+                        }
+                        if (idValue) {
+                            idValue.value = '';
+                        }
+                    }
                 }
                 
                 checkbox.addEventListener('change', toggleFields);
@@ -364,13 +396,9 @@ class LHDN_User_Profile {
             }
         })();
         </script>
-        <?php 
-        $not_malaysian = get_user_meta($user_id, 'lhdn_not_malaysian', true);
-        if($validation !== 'valid' && $not_malaysian !== '1'){ 
-        ?>
-        <p>Check your TIN number via the MyTax Portal (e-Daftar or Your Profile Information) or contact the HASiL Contact Centre (03-8911 1000); or visit the nearest LHDNM offices.</p>
+
+        <p>If you are a Malaysian citizen, check your TIN number via the MyTax Portal (e-Daftar or Your Profile Information) or contact the HASiL Contact Centre (03-8911 1000); or visit the nearest LHDNM offices.</p>
         <?php
-        }
     }
 
     /**

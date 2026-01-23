@@ -24,6 +24,82 @@ class LHDN_Invoice {
     }
 
     /**
+     * Get buyer address with fallback: profile -> billing -> shipping
+     * 
+     * @param int $user_id User ID
+     * @param WC_Order|null $order WooCommerce order object
+     * @return array Address array with keys: line1, city, postcode, state_code, country
+     */
+    private function get_buyer_address($user_id, $order = null) {
+        $address = [
+            'line1'      => '',
+            'city'       => '',
+            'postcode'   => '',
+            'state_code' => '',
+            'country'    => '',
+        ];
+
+        // 1. Try profile address (user meta) first
+        if ($user_id > 0) {
+            $profile_line1 = trim(
+                (get_user_meta($user_id, 'billing_address_1', true) ?: '') . ' ' .
+                (get_user_meta($user_id, 'billing_address_2', true) ?: '')
+            );
+            $profile_city = get_user_meta($user_id, 'billing_city', true);
+            $profile_postcode = get_user_meta($user_id, 'billing_postcode', true);
+            $profile_state = get_user_meta($user_id, 'billing_state', true);
+            $profile_country = get_user_meta($user_id, 'billing_country', true);
+
+            if (!empty($profile_line1) || !empty($profile_city) || !empty($profile_postcode)) {
+                $address['line1'] = $profile_line1;
+                $address['city'] = $profile_city ?: $profile_country;
+                $address['postcode'] = $profile_postcode;
+                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($profile_state);
+                $address['country'] = LHDN_Helpers::country_iso2_to_iso3($profile_country);
+                return $address;
+            }
+        }
+
+        // 2. Fallback to billing address from order
+        if ($order) {
+            $billing_line1 = trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2());
+            $billing_city = $order->get_billing_city();
+            $billing_postcode = $order->get_billing_postcode();
+            $billing_state = $order->get_billing_state();
+            $billing_country = $order->get_billing_country();
+
+            if (!empty($billing_line1) || !empty($billing_city) || !empty($billing_postcode)) {
+                $address['line1'] = $billing_line1;
+                $address['city'] = $billing_city ?: $billing_country;
+                $address['postcode'] = $billing_postcode;
+                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($billing_state);
+                $address['country'] = LHDN_Helpers::country_iso2_to_iso3($billing_country);
+                return $address;
+            }
+        }
+
+        // 3. Fallback to shipping address from order
+        if ($order) {
+            $shipping_line1 = trim($order->get_shipping_address_1() . ' ' . $order->get_shipping_address_2());
+            $shipping_city = $order->get_shipping_city();
+            $shipping_postcode = $order->get_shipping_postcode();
+            $shipping_state = $order->get_shipping_state();
+            $shipping_country = $order->get_shipping_country();
+
+            if (!empty($shipping_line1) || !empty($shipping_city) || !empty($shipping_postcode)) {
+                $address['line1'] = $shipping_line1;
+                $address['city'] = $shipping_city ?: $shipping_country;
+                $address['postcode'] = $shipping_postcode;
+                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($shipping_state);
+                $address['country'] = LHDN_Helpers::country_iso2_to_iso3($shipping_country);
+                return $address;
+            }
+        }
+
+        return $address;
+    }
+
+    /**
      * Clean and validate phone number for LHDN submission
      * Requirements: 8-20 characters, digits only (optional + at front), no spaces
      * 
@@ -427,10 +503,13 @@ class LHDN_Invoice {
             $tax_amount += $fee->get_total_tax();
         }
 
-        // Get and clean phone number (billing first, fallback to shipping)
+        // Get and clean phone number (billing first, fallback to shipping, then profile)
         $phone = $this->clean_phone_number($order->get_billing_phone());
         if (empty($phone)) {
             $phone = $this->clean_phone_number($order->get_shipping_phone());
+        }
+        if (empty($phone) && $user_id > 0) {
+            $phone = $this->clean_phone_number(get_user_meta($user_id, 'billing_phone', true));
         }
         // If still empty, use a default placeholder (LHDN requires phone number)
         if (empty($phone)) {
@@ -438,10 +517,36 @@ class LHDN_Invoice {
             LHDN_Logger::log("WC Order #{$order->get_id()}: Phone number missing, using default");
         }
 
-        // Get billing city, fallback to country if city is not available
-        $billing_city = $order->get_billing_city();
-        if (empty($billing_city)) {
-            $billing_city = $order->get_billing_country();
+        // Get buyer address with fallback: profile -> billing -> shipping
+        $buyer_address = $this->get_buyer_address($user_id, $order);
+
+        // Get buyer name (profile company/name, fallback to order billing)
+        $buyer_name = '';
+        if ($user_id > 0) {
+            $buyer_name = get_user_meta($user_id, 'billing_company', true);
+            if (empty($buyer_name)) {
+                $first_name = get_user_meta($user_id, 'first_name', true);
+                $last_name = get_user_meta($user_id, 'last_name', true);
+                if ($first_name || $last_name) {
+                    $buyer_name = trim($first_name . ' ' . $last_name);
+                }
+            }
+        }
+        if (empty($buyer_name)) {
+            $buyer_name = $order->get_billing_company() ?: $order->get_formatted_billing_full_name();
+        }
+
+        // Get buyer email (profile first, fallback to order billing)
+        $buyer_email = '';
+        if ($user_id > 0) {
+            $buyer_email = get_user_meta($user_id, 'billing_email', true);
+            if (empty($buyer_email)) {
+                $user = get_userdata($user_id);
+                $buyer_email = $user ? $user->user_email : '';
+            }
+        }
+        if (empty($buyer_email)) {
+            $buyer_email = $order->get_billing_email();
         }
 
         return $this->submit([
@@ -452,16 +557,10 @@ class LHDN_Invoice {
                 'tin'            => $tin,
                 'id_type'        => $id_type,
                 'id_value'       => $id_value,
-                'name'           => $order->get_billing_company() ?: $order->get_formatted_billing_full_name(),
+                'name'           => $buyer_name,
                 'phone'          => $phone,
-                'email'          => $order->get_billing_email(),
-                'address'    => [
-                        'city'       => $billing_city,
-                        'postcode'   => $order->get_billing_postcode(),
-                        'state_code' => LHDN_Helpers::wc_state_to_lhdn($order->get_billing_state()),
-                        'line1'      => trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2()),
-                        'country'    => LHDN_Helpers::country_iso2_to_iso3($order->get_billing_country()),
-                ]
+                'email'          => $buyer_email,
+                'address'        => $buyer_address,
             ],
             'seller_address' => [
                 'city'       => LHDN_SELLER_ADDRESS_CITY,
@@ -664,36 +763,59 @@ class LHDN_Invoice {
                 $tax_amount += $fee->get_total_tax();
             }
 
-            // Get and clean phone number (billing first, fallback to shipping)
+            // Get and clean phone number (billing first, fallback to shipping, then profile)
             $phone = $this->clean_phone_number($order->get_billing_phone());
             if (empty($phone)) {
                 $phone = $this->clean_phone_number($order->get_shipping_phone());
+            }
+            if (empty($phone) && $user_id > 0) {
+                $phone = $this->clean_phone_number(get_user_meta($user_id, 'billing_phone', true));
             }
             if (empty($phone)) {
                 $phone = '60123456789'; // Default Malaysian phone number format
                 LHDN_Logger::log("WC Order #{$order->get_id()}: Phone number missing for credit note, using default");
             }
 
-            // Get billing city, fallback to country if city is not available
-            $billing_city = $order->get_billing_city();
-            if (empty($billing_city)) {
-                $billing_city = $order->get_billing_country();
+            // Get buyer address with fallback: profile -> billing -> shipping
+            $buyer_address = $this->get_buyer_address($user_id, $order);
+
+            // Get buyer name (profile company/name, fallback to order billing)
+            $buyer_name = '';
+            if ($user_id > 0) {
+                $buyer_name = get_user_meta($user_id, 'billing_company', true);
+                if (empty($buyer_name)) {
+                    $first_name = get_user_meta($user_id, 'first_name', true);
+                    $last_name = get_user_meta($user_id, 'last_name', true);
+                    if ($first_name || $last_name) {
+                        $buyer_name = trim($first_name . ' ' . $last_name);
+                    }
+                }
+            }
+            if (empty($buyer_name)) {
+                $buyer_name = $order->get_billing_company() ?: $order->get_formatted_billing_full_name();
+            }
+
+            // Get buyer email (profile first, fallback to order billing)
+            $buyer_email = '';
+            if ($user_id > 0) {
+                $buyer_email = get_user_meta($user_id, 'billing_email', true);
+                if (empty($buyer_email)) {
+                    $user = get_userdata($user_id);
+                    $buyer_email = $user ? $user->user_email : '';
+                }
+            }
+            if (empty($buyer_email)) {
+                $buyer_email = $order->get_billing_email();
             }
 
             $buyer_data = [
                 'tin'            => $tin,
                 'id_type'        => $id_type,
                 'id_value'       => $id_value,
-                'name'           => $order->get_billing_company() ?: $order->get_formatted_billing_full_name(),
+                'name'           => $buyer_name,
                 'phone'          => $phone,
-                'email'          => $order->get_billing_email(),
-                'address'        => [
-                    'city'       => $billing_city,
-                    'postcode'   => $order->get_billing_postcode(),
-                    'state_code' => LHDN_Helpers::wc_state_to_lhdn($order->get_billing_state()),
-                    'line1'      => trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2()),
-                    'country'    => LHDN_Helpers::country_iso2_to_iso3($order->get_billing_country()),
-                ]
+                'email'          => $buyer_email,
+                'address'        => $buyer_address,
             ];
         } else {
             // Fallback: Extract data from stored payload (for test invoices or invoices without WC order)
@@ -978,36 +1100,59 @@ class LHDN_Invoice {
                 $tax_amount += $fee->get_total_tax();
             }
 
-            // Get and clean phone number (billing first, fallback to shipping)
+            // Get and clean phone number (billing first, fallback to shipping, then profile)
             $phone = $this->clean_phone_number($order->get_billing_phone());
             if (empty($phone)) {
                 $phone = $this->clean_phone_number($order->get_shipping_phone());
+            }
+            if (empty($phone) && $user_id > 0) {
+                $phone = $this->clean_phone_number(get_user_meta($user_id, 'billing_phone', true));
             }
             if (empty($phone)) {
                 $phone = '60123456789'; // Default Malaysian phone number format
                 LHDN_Logger::log("WC Order #{$order->get_id()}: Phone number missing for refund note, using default");
             }
 
-            // Get billing city, fallback to country if city is not available
-            $billing_city = $order->get_billing_city();
-            if (empty($billing_city)) {
-                $billing_city = $order->get_billing_country();
+            // Get buyer address with fallback: profile -> billing -> shipping
+            $buyer_address = $this->get_buyer_address($user_id, $order);
+
+            // Get buyer name (profile company/name, fallback to order billing)
+            $buyer_name = '';
+            if ($user_id > 0) {
+                $buyer_name = get_user_meta($user_id, 'billing_company', true);
+                if (empty($buyer_name)) {
+                    $first_name = get_user_meta($user_id, 'first_name', true);
+                    $last_name = get_user_meta($user_id, 'last_name', true);
+                    if ($first_name || $last_name) {
+                        $buyer_name = trim($first_name . ' ' . $last_name);
+                    }
+                }
+            }
+            if (empty($buyer_name)) {
+                $buyer_name = $order->get_billing_company() ?: $order->get_formatted_billing_full_name();
+            }
+
+            // Get buyer email (profile first, fallback to order billing)
+            $buyer_email = '';
+            if ($user_id > 0) {
+                $buyer_email = get_user_meta($user_id, 'billing_email', true);
+                if (empty($buyer_email)) {
+                    $user = get_userdata($user_id);
+                    $buyer_email = $user ? $user->user_email : '';
+                }
+            }
+            if (empty($buyer_email)) {
+                $buyer_email = $order->get_billing_email();
             }
 
             $buyer_data = [
                 'tin'            => $tin,
                 'id_type'        => $id_type,
                 'id_value'       => $id_value,
-                'name'           => $order->get_billing_company() ?: $order->get_formatted_billing_full_name(),
+                'name'           => $buyer_name,
                 'phone'          => $phone,
-                'email'          => $order->get_billing_email(),
-                'address'        => [
-                    'city'       => $billing_city,
-                    'postcode'   => $order->get_billing_postcode(),
-                    'state_code' => LHDN_Helpers::wc_state_to_lhdn($order->get_billing_state()),
-                    'line1'      => trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2()),
-                    'country'    => LHDN_Helpers::country_iso2_to_iso3($order->get_billing_country()),
-                ]
+                'email'          => $buyer_email,
+                'address'        => $buyer_address,
             ];
         } else {
             // Fallback: Extract data from stored payload (for test invoices or invoices without WC order)
@@ -1274,10 +1419,13 @@ class LHDN_Invoice {
 
         LHDN_Logger::log("Re-submitting WC Order {$ordernum}");
 
-        // Get and clean phone number (billing first, fallback to shipping)
+        // Get and clean phone number (billing first, fallback to shipping, then profile)
         $phone = $this->clean_phone_number($order->get_billing_phone());
         if (empty($phone)) {
             $phone = $this->clean_phone_number($order->get_shipping_phone());
+        }
+        if (empty($phone) && $user_id > 0) {
+            $phone = $this->clean_phone_number(get_user_meta($user_id, 'billing_phone', true));
         }
         // If still empty, use a default placeholder (LHDN requires phone number)
         if (empty($phone)) {
@@ -1285,10 +1433,36 @@ class LHDN_Invoice {
             LHDN_Logger::log("WC Order #{$order->get_id()} resubmit: Phone number missing, using default");
         }
 
-        // Get billing city, fallback to country if city is not available
-        $billing_city = $order->get_billing_city();
-        if (empty($billing_city)) {
-            $billing_city = $order->get_billing_country();
+        // Get buyer address with fallback: profile -> billing -> shipping
+        $buyer_address = $this->get_buyer_address($user_id, $order);
+
+        // Get buyer name (profile company/name, fallback to order billing)
+        $buyer_name = '';
+        if ($user_id > 0) {
+            $buyer_name = get_user_meta($user_id, 'billing_company', true);
+            if (empty($buyer_name)) {
+                $first_name = get_user_meta($user_id, 'first_name', true);
+                $last_name = get_user_meta($user_id, 'last_name', true);
+                if ($first_name || $last_name) {
+                    $buyer_name = trim($first_name . ' ' . $last_name);
+                }
+            }
+        }
+        if (empty($buyer_name)) {
+            $buyer_name = $order->get_billing_company() ?: $order->get_formatted_billing_full_name();
+        }
+
+        // Get buyer email (profile first, fallback to order billing)
+        $buyer_email = '';
+        if ($user_id > 0) {
+            $buyer_email = get_user_meta($user_id, 'billing_email', true);
+            if (empty($buyer_email)) {
+                $user = get_userdata($user_id);
+                $buyer_email = $user ? $user->user_email : '';
+            }
+        }
+        if (empty($buyer_email)) {
+            $buyer_email = $order->get_billing_email();
         }
 
         return $this->submit([
@@ -1299,16 +1473,10 @@ class LHDN_Invoice {
                 'tin'   => $tin,
                 'id_type' => $id_type,
                 'id_value' => $id_value,
-                'name'  => $order->get_billing_company() ?: $order->get_formatted_billing_full_name(),
+                'name'  => $buyer_name,
                 'phone' => $phone,
-                'email' => $order->get_billing_email(),
-                'address' => [
-                    'city'       => $billing_city,
-                    'postcode'   => $order->get_billing_postcode(),
-                    'state_code' => LHDN_Helpers::wc_state_to_lhdn($order->get_billing_state()),
-                    'line1'      => trim($order->get_billing_address_1() . ' ' . $order->get_billing_address_2()),
-                    'country'    => LHDN_Helpers::country_iso2_to_iso3($order->get_billing_country()),
-                ]
+                'email' => $buyer_email,
+                'address' => $buyer_address,
             ],
             'seller_address' => [
                 'city'       => LHDN_SELLER_ADDRESS_CITY,
