@@ -87,8 +87,10 @@ class LHDN_User_Profile {
                            name="lhdn_tin"
                            id="lhdn_tin"
                            value="<?php echo esc_attr(get_user_meta($user->ID, 'lhdn_tin', true)); ?>"
-                           class="regular-text" />
-                    <p class="description">Optional taxpayer identification number</p>
+                           class="regular-text"
+                           pattern="[A-Z0-9]+"
+                           title="TIN number cannot contain spaces. Format: IG followed by 9-11 digits (e.g., IG845462070) or letter prefix for businesses (e.g., C20990050040)." />
+                    <p class="description">Optional taxpayer identification number (no spaces allowed)</p>
                 </td>
             </tr>
 
@@ -134,6 +136,33 @@ class LHDN_User_Profile {
             var tinInput  = document.getElementById('lhdn_tin');
             var idType    = document.getElementById('lhdn_id_type');
             var idValue   = document.getElementById('lhdn_id_value');
+            
+            // Prevent spaces in TIN input
+            if (tinInput) {
+                tinInput.addEventListener('keypress', function(e) {
+                    if (e.key === ' ' || e.keyCode === 32) {
+                        e.preventDefault();
+                        return false;
+                    }
+                });
+                
+                // Also prevent paste with spaces
+                tinInput.addEventListener('paste', function(e) {
+                    e.preventDefault();
+                    var pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                    var cleanedText = pastedText.replace(/\s+/g, '').toUpperCase();
+                    this.value = cleanedText;
+                });
+                
+                // Strip spaces on input
+                tinInput.addEventListener('input', function(e) {
+                    var value = this.value;
+                    var cleanedValue = value.replace(/\s+/g, '').toUpperCase();
+                    if (value !== cleanedValue) {
+                        this.value = cleanedValue;
+                    }
+                });
+            }
             
             if (checkbox) {
                 function toggleFields() {
@@ -210,7 +239,9 @@ class LHDN_User_Profile {
             return;
         }
         
-        $tin      = isset($_POST['lhdn_tin']) ? sanitize_text_field(wp_unslash($_POST['lhdn_tin'])) : '';
+        // Sanitize and strip spaces from TIN (convert to uppercase, remove all spaces)
+        $tin_raw = isset($_POST['lhdn_tin']) ? wp_unslash($_POST['lhdn_tin']) : '';
+        $tin = strtoupper(preg_replace('/\s+/', '', sanitize_text_field($tin_raw)));
         $id_type  = isset($_POST['lhdn_id_type']) ? sanitize_text_field(wp_unslash($_POST['lhdn_id_type'])) : '';
         $id_value = isset($_POST['lhdn_id_value']) ? sanitize_text_field(wp_unslash($_POST['lhdn_id_value'])) : '';
 
@@ -334,7 +365,10 @@ class LHDN_User_Profile {
                        class="woocommerce-Input woocommerce-Input--text input-text"
                        name="lhdn_tin"
                        id="lhdn_tin"
-                       value="<?php echo esc_attr($tin); ?>" />
+                       value="<?php echo esc_attr($tin); ?>"
+                       pattern="[A-Z0-9]+"
+                       title="TIN number cannot contain spaces. Format: IG followed by 9-11 digits (e.g., IG845462070) or letter prefix for businesses (e.g., C20990050040)." />
+                <span class="description">Example: IG12345678901 or C12345678901. No spaces allowed.</span>
             </p>
 
             <p class="woocommerce-form-row woocommerce-form-row--wide form-row form-row-wide">
@@ -372,6 +406,33 @@ class LHDN_User_Profile {
             var tinInput  = document.getElementById('lhdn_tin');
             var idType    = document.getElementById('lhdn_id_type');
             var idValue   = document.getElementById('lhdn_id_value');
+            
+            // Prevent spaces in TIN input
+            if (tinInput) {
+                tinInput.addEventListener('keypress', function(e) {
+                    if (e.key === ' ' || e.keyCode === 32) {
+                        e.preventDefault();
+                        return false;
+                    }
+                });
+                
+                // Also prevent paste with spaces
+                tinInput.addEventListener('paste', function(e) {
+                    e.preventDefault();
+                    var pastedText = (e.clipboardData || window.clipboardData).getData('text');
+                    var cleanedText = pastedText.replace(/\s+/g, '').toUpperCase();
+                    this.value = cleanedText;
+                });
+                
+                // Strip spaces on input
+                tinInput.addEventListener('input', function(e) {
+                    var value = this.value;
+                    var cleanedValue = value.replace(/\s+/g, '').toUpperCase();
+                    if (value !== cleanedValue) {
+                        this.value = cleanedValue;
+                    }
+                });
+            }
             
             if (checkbox && tinFields) {
                 function toggleFields() {
