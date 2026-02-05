@@ -199,57 +199,49 @@ class LHDN_Database {
                     $null_clause = isset($column_def['null']) && $column_def['null'] === 'YES' ? 'NULL' : 'NOT NULL';
                     $extra_clause = !empty($column_def['extra']) ? $column_def['extra'] : '';
                     
-                    // Validate column name contains only safe characters (alphanumeric, underscore)
-                    // Column names come from hardcoded $required_columns array, validated via in_array() above
-                    if (!preg_match('/^[a-zA-Z0-9_]+$/', $column_name)) {
-                        continue; // Skip invalid column name
+                    // Whitelist: column name must be from hardcoded $required_columns (no user input)
+                    if (!array_key_exists($column_name, $required_columns)) {
+                        continue;
                     }
                     
                     // Validate column type contains only safe characters
                     $column_type = preg_match('/^[A-Za-z0-9_()\s,]+$/', $column_def['type']) ? $column_def['type'] : 'VARCHAR(255)';
                     
-                    // Validate and escape identifiers for DDL statement
-                    // esc_sql() is acceptable for DDL identifiers where prepare() cannot be used
-                    $safe_table = esc_sql($table);
-                    $safe_column_name = esc_sql($column_name);
-                    
-                    // Table name comes from $wpdb->prefix which is safe, column names validated above
-                    // Using backticks for identifiers as per MySQL best practices
-                    $query = "ALTER TABLE `{$safe_table}` ADD COLUMN `{$safe_column_name}` {$column_type} {$null_clause}";
-                    
-                    // Validate extra_clause (DEFAULT values) contains only safe characters
-                    $safe_extra_clause = '';
-                    if (!empty($extra_clause) && strpos($extra_clause, 'DEFAULT') !== false && preg_match('/^[A-Za-z0-9_\s()\'\"]+$/', $extra_clause)) {
-                        $safe_extra_clause = $extra_clause;
-                    }
-                    if (!empty($safe_extra_clause)) {
-                        $query .= " {$safe_extra_clause}";
+                    // Whitelist table: only our known table (no user input)
+                    $allowed_tables = [ $wpdb->prefix . 'lhdn_cert' ];
+                    if (!in_array($table, $allowed_tables, true)) {
+                        continue;
                     }
                     
-                    // Validate after_clause column name is from validated array
-                    $safe_after_clause = '';
-                    if (!empty($after_clause)) {
-                        // Extract and validate column name from AFTER clause
-                        if (preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $after_clause, $matches)) {
-                            $after_column = esc_sql($matches[1]);
-                            if (in_array($matches[1], $existing_column_names) || in_array($matches[1], array_keys($required_columns))) {
-                                $safe_after_clause = "AFTER `{$after_column}`";
+                    // Build AFTER clause from whitelist only: use value from allowed array, not from regex capture
+                    $safe_after_sql = '';
+                    $allowed_after_cols = array_merge($existing_column_names, array_keys($required_columns));
+                    if (!empty($after_clause) && preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $after_clause, $matches)) {
+                        foreach ($allowed_after_cols as $allowed_col) {
+                            if ($allowed_col === $matches[1]) {
+                                // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- $allowed_col is from whitelist (existing_column_names, required_columns)
+                                $safe_after_sql = 'AFTER `' . $allowed_col . '`';
+                                break;
                             }
                         }
                     }
-                    if (!empty($safe_after_clause)) {
-                        $query .= " {$safe_after_clause}";
+                    
+                    // Whitelist extra_clause for cert table: only known patterns
+                    $safe_extra_sql = '';
+                    if ($extra_clause === 'DEFAULT 1' || (preg_match('/^DEFAULT\s+[\'"0-9]+$/', $extra_clause))) {
+                        $safe_extra_sql = $extra_clause;
                     }
                     
-                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-                    // DDL statement: wpdb::prepare() cannot be used for table/column names in ALTER TABLE.
-                    // MySQL does not support placeholders for identifiers (table/column names) in DDL statements.
-                    // All identifiers are validated via regex and escaped using esc_sql():
-                    // - $safe_table: from $wpdb->prefix (WordPress core), escaped with esc_sql()
-                    // - $safe_column_name: from hardcoded array, validated via regex, escaped with esc_sql()
-                    // - $column_type: validated via regex
-                    // - AFTER clause: column name validated via regex and in_array(), escaped with esc_sql()
-                    $result = $wpdb->query($query);
+                    // Build query using whitelisted identifiers only (no esc_sql; wpdb::prepare cannot be used for DDL identifiers per WP docs)
+                    $query = "ALTER TABLE `{$table}` ADD COLUMN `{$column_name}` {$column_type} {$null_clause}";
+                    if (!empty($safe_extra_sql)) {
+                        $query .= " {$safe_extra_sql}";
+                    }
+                    if (!empty($safe_after_sql)) {
+                        $query .= " {$safe_after_sql}";
+                    }
+                    // DDL: identifiers whitelisted; wpdb::prepare() cannot be used for table/column names in ALTER TABLE (WP docs).
+                    $result = $wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
                     
                     if ($result !== false) {
                         if (class_exists('LHDN_Logger')) {
@@ -430,10 +422,9 @@ class LHDN_Database {
                         $after_clause = '';
                     }
                     
-                    // Validate column name contains only safe characters (alphanumeric, underscore)
-                    // Column names come from hardcoded $required_columns array, validated via in_array() above
-                    if (!preg_match('/^[a-zA-Z0-9_]+$/', $column_name)) {
-                        continue; // Skip invalid column name
+                    // Whitelist: column name must be from hardcoded $required_columns (no user input)
+                    if (!array_key_exists($column_name, $required_columns)) {
+                        continue;
                     }
                     
                     // Validate column type contains only safe characters
@@ -442,86 +433,60 @@ class LHDN_Database {
                     $null_clause = isset($column_def['null']) && $column_def['null'] === 'YES' ? 'NULL' : 'NOT NULL';
                     $extra_clause = !empty($column_def['extra']) ? $column_def['extra'] : '';
                     
-                    // Validate extra_clause (DEFAULT values) contains only safe characters
-                    $safe_extra_clause = '';
-                    if (!empty($extra_clause) && strpos($extra_clause, 'DEFAULT') !== false) {
-                        if (preg_match('/^DEFAULT\s+[\'"0-9]+$/', $extra_clause)) {
-                            $safe_extra_clause = $extra_clause;
-                        }
+                    // Whitelist table: only our known table (no user input)
+                    $allowed_tables_myinvoice = [ $wpdb->prefix . 'lhdn_myinvoice' ];
+                    if (!in_array($table, $allowed_tables_myinvoice, true)) {
+                        continue;
                     }
                     
-                    // Validate after_clause column name is from validated array
-                    $safe_after_clause = '';
-                    if (!empty($after_clause)) {
-                        // Extract column name from AFTER clause and validate
-                        if (preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $after_clause, $matches)) {
-                            $after_column = $matches[1];
-                            if (in_array($after_column, $existing_column_names) || in_array($after_column, array_keys($required_columns))) {
-                                $safe_after_clause = $after_clause;
+                    // Build AFTER clause from whitelist only: use value from allowed array, not from regex capture
+                    $safe_after_sql = '';
+                    $allowed_after_cols = array_merge($existing_column_names, array_keys($required_columns));
+                    if (!empty($after_clause) && preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $after_clause, $matches)) {
+                        foreach ($allowed_after_cols as $allowed_col) {
+                            if ($allowed_col === $matches[1]) {
+                                // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- $allowed_col is from whitelist (existing_column_names, required_columns)
+                                $safe_after_sql = 'AFTER `' . $allowed_col . '`';
+                                break;
                             }
                         }
                     }
                     
-                    // Validate and escape identifiers for DDL statement
-                    // esc_sql() is acceptable for DDL identifiers where prepare() cannot be used
-                    $safe_table = esc_sql($table);
-                    $safe_column_name = esc_sql($column_name);
-                    
-                    // Build the query using only validated/whitelisted identifiers
-                    // Table name comes from $wpdb->prefix (WordPress core, trusted)
-                    // Column names validated above via regex and in_array() checks
-                    $query = "ALTER TABLE `{$safe_table}` ADD COLUMN `{$safe_column_name}` {$column_type} {$null_clause}";
-                    
-                    if (!empty($safe_extra_clause)) {
-                        $query .= " {$safe_extra_clause}";
+                    // Whitelist extra_clause for myinvoice table: only known patterns
+                    $safe_extra_sql = '';
+                    $allowed_extra_myinvoice = [ 'AUTO_INCREMENT PRIMARY KEY', 'UNIQUE', 'DEFAULT 0', '' ];
+                    if (in_array($extra_clause, $allowed_extra_myinvoice, true) || (strpos($extra_clause, 'DEFAULT') !== false && preg_match('/^DEFAULT\s+[\'"0-9]+$/', $extra_clause))) {
+                        $safe_extra_sql = $extra_clause;
                     }
                     
-                    // Validate and escape AFTER clause column name
-                    if (!empty($safe_after_clause)) {
-                        // Extract column name from AFTER clause and escape it
-                        if (preg_match('/^AFTER\s+`([a-zA-Z0-9_]+)`$/', $safe_after_clause, $matches)) {
-                            $after_column = esc_sql($matches[1]);
-                            if (in_array($matches[1], $existing_column_names) || in_array($matches[1], array_keys($required_columns))) {
-                                $query .= " AFTER `{$after_column}`";
-                            }
-                        }
+                    // Build query using whitelisted identifiers only (no esc_sql; wpdb::prepare cannot be used for DDL identifiers per WP docs)
+                    $query = "ALTER TABLE `{$table}` ADD COLUMN `{$column_name}` {$column_type} {$null_clause}";
+                    if (!empty($safe_extra_sql)) {
+                        $query .= " {$safe_extra_sql}";
                     }
-                    
-                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-                    // DDL statement: wpdb::prepare() cannot be used for table/column names in ALTER TABLE.
-                    // MySQL does not support placeholders for identifiers (table/column names) in DDL statements.
-                    // All identifiers are validated via regex and escaped using esc_sql():
-                    // - $safe_table: from $wpdb->prefix (WordPress core), escaped with esc_sql()
-                    // - $safe_column_name: from hardcoded array, validated via regex, escaped with esc_sql()
-                    // - $column_type: validated via regex
-                    // - AFTER clause: column name validated via regex and in_array(), escaped with esc_sql()
-                    // - $safe_extra_clause: validated via regex
-                    $result = $wpdb->query($query);
+                    if (!empty($safe_after_sql)) {
+                        $query .= " {$safe_after_sql}";
+                    }
+                    // DDL: identifiers whitelisted; wpdb::prepare() cannot be used for table/column names in ALTER TABLE (WP docs).
+                    $result = $wpdb->query($query); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
                     
                     if ($result !== false) {
                         if (class_exists('LHDN_Logger')) {
                             LHDN_Logger::log("Added missing column {$column_name} to {$table} table");
                         }
-                        // Add to existing columns list so next columns can reference it
                         $existing_column_names[] = $column_name;
                         
-                        // Add UNIQUE constraint for invoice_no if needed
                         if ($column_name === 'invoice_no' && strpos($extra_clause, 'UNIQUE') !== false) {
-                            // Check if unique index already exists
                             $unique_exists = $wpdb->get_var(
                                 $wpdb->prepare(
-                                    "SHOW INDEX FROM {$table} WHERE Column_name = %s AND Non_unique = 0",
+                                    "SHOW INDEX FROM `{$table}` WHERE Column_name = %s AND Non_unique = 0",
                                     $column_name
                                 )
                             );
-                            
-                            if (!$unique_exists) {
-                                // Validate column name is safe (already validated above)
-                                if (preg_match('/^[a-zA-Z0-9_]+$/', $column_name)) {
-                                    // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-                                    // DDL statement: $table from $wpdb->prefix, $column_name validated above
-                                    $wpdb->query("ALTER TABLE `{$table}` ADD UNIQUE (`{$column_name}`)");
-                                }
+                            if (!$unique_exists && array_key_exists($column_name, $required_columns)) {
+                                // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
+                                // DDL: $table and $column_name whitelisted above
+                                $wpdb->query("ALTER TABLE `{$table}` ADD UNIQUE (`{$column_name}`)");
                             }
                         }
                     } else {
@@ -548,36 +513,43 @@ class LHDN_Database {
     }
 
     /**
-     * Add index if not exists
+     * Add index if not exists.
+     * Uses whitelisting only (no esc_sql); table, index and column names must be from allowed lists.
      */
     public static function add_index_if_not_exists($table, $index, $columns) {
         global $wpdb;
 
-        // Validate index name and columns - only allow alphanumeric, underscore, comma, space
-        if (!preg_match('/^[a-zA-Z0-9_]+$/', $index)) {
-            return; // Invalid index name
-        }
-        if (!preg_match('/^[a-zA-Z0-9_,\s]+$/', $columns)) {
-            return; // Invalid column names
+        // Whitelist: only our known table (no user input)
+        $allowed_tables = [ $wpdb->prefix . 'lhdn_myinvoice' ];
+        if (!in_array($table, $allowed_tables, true)) {
+            return;
         }
 
-        // Further validate: split columns and validate each one individually
+        // Whitelist: only known index/columns pairs (hardcoded; no user input)
+        $allowed_indexes = [
+            'idx_uuid'         => 'uuid',
+            'idx_status_code'  => 'status, code',
+            'idx_retry'        => 'retry_count',
+            'idx_updated'      => 'updated_at',
+            'idx_queue_status' => 'queue_status',
+        ];
+        if (!isset($allowed_indexes[ $index ]) || $allowed_indexes[ $index ] !== $columns) {
+            return;
+        }
+
+        $allowed_column_names = [ 'uuid', 'status', 'code', 'retry_count', 'updated_at', 'queue_status' ];
         $column_list = array_map('trim', explode(',', $columns));
-        $valid_columns = array();
+        $valid_columns = [];
         foreach ($column_list as $col) {
-            if (preg_match('/^[a-zA-Z0-9_]+$/', $col)) {
+            if (in_array($col, $allowed_column_names, true)) {
+                // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- $col is from whitelist $allowed_column_names
                 $valid_columns[] = $col;
             }
         }
-        
         if (empty($valid_columns)) {
-            return; // No valid columns
+            return;
         }
-        
-        $safe_columns = implode(', ', $valid_columns);
 
-        // Table name comes from $wpdb->prefix which is safe
-        // Index name and columns validated above
         $exists = $wpdb->get_var(
             $wpdb->prepare(
                 "SHOW INDEX FROM `{$table}` WHERE Key_name = %s",
@@ -586,28 +558,11 @@ class LHDN_Database {
         );
 
         if (!$exists) {
-            // Validate and escape identifiers for DDL statement
-            // esc_sql() is acceptable for DDL identifiers where prepare() cannot be used
-            $safe_table = esc_sql($table);
-            $safe_index = esc_sql($index);
-            
-            // Escape each column name individually
-            $escaped_columns = array();
-            foreach ($valid_columns as $col) {
-                $escaped_columns[] = esc_sql($col);
-            }
-            $safe_columns_list = implode(', ', $escaped_columns);
-            
-            // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
-            // DDL statement: wpdb::prepare() cannot be used for table/index/column names in CREATE INDEX.
-            // MySQL does not support placeholders for identifiers (table/index/column names) in DDL statements.
-            // All identifiers are validated via regex and escaped using esc_sql():
-            // - $safe_table: from $wpdb->prefix (WordPress core, trusted source), escaped with esc_sql()
-            // - $safe_index: validated via preg_match('/^[a-zA-Z0-9_]+$/', $index) above, escaped with esc_sql()
-            // - $safe_columns_list: each column validated individually via preg_match() and escaped with esc_sql()
-            $wpdb->query(
-                "CREATE INDEX `{$safe_index}` ON `{$safe_table}` ({$safe_columns_list})"
-            );
+            // Build columns list from whitelisted names only (no esc_sql)
+            // phpcs:ignore PluginCheck.Security.DirectDB.UnescapedDBParameter -- $valid_columns contains only whitelisted column names
+            $columns_sql = implode(', ', $valid_columns);
+            // DDL: table/index/columns from whitelist above; prepare() does not support identifier placeholders.
+            $wpdb->query( "CREATE INDEX `{$index}` ON `{$table}` ({$columns_sql})" ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter
         }
     }
 

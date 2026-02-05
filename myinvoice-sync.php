@@ -12,6 +12,10 @@
 
 if (!defined('ABSPATH')) exit;
 
+if (!defined('MYINVOICE_SYNC_VERSION')) {
+    define('MYINVOICE_SYNC_VERSION', '2.0.11');
+}
+
 // Load main plugin class
 require_once plugin_dir_path(__FILE__) . 'includes/class-lhdn-plugin.php';
 

@@ -95,23 +95,21 @@ class LHDN_User_Profile {
             </tr>
 
             <tr class="lhdn-tin-fields" style="<?php echo get_user_meta($user->ID, 'lhdn_not_malaysian', true) === '1' ? 'display:none;' : ''; ?>">
-                <th><label for="lhdn_id_type">ID Type</label></th>
+                <th><span class="lhdn-id-type-label">ID Type</span></th>
                 <td>
-                    <select name="lhdn_id_type" id="lhdn_id_type">
-                        <option value="">— Select —</option>
+                    <fieldset class="lhdn-id-type-radios" id="lhdn_id_type" style="border:none;margin:0;padding:0;">
                         <?php
-                        $types = ['NRIC', 'PASSPORT', 'ARMY'];
+                        $types = ['NRIC' => 'NRIC', 'PASSPORT' => 'PASSPORT', 'ARMY' => 'ARMY'];
                         $selected = get_user_meta($user->ID, 'lhdn_id_type', true);
-
-                        foreach ($types as $type) {
-                            printf(
-                                '<option value="%1$s" %2$s>%1$s</option>',
-                                esc_attr($type),
-                                selected($selected, $type, false)
-                            );
-                        }
+                        foreach ($types as $value => $label) :
+                            $id_attr = 'lhdn_id_type_' . strtolower($value);
                         ?>
-                    </select>
+                        <label style="margin-right:1em;">
+                            <input type="radio" name="lhdn_id_type" value="<?php echo esc_attr($value); ?>" id="<?php echo esc_attr($id_attr); ?>" <?php checked($selected, $value); ?> />
+                            <?php echo esc_html($label); ?>
+                        </label>
+                        <?php endforeach; ?>
+                    </fieldset>
                     <p class="description">Optional identification type</p>
                 </td>
             </tr>
@@ -129,67 +127,59 @@ class LHDN_User_Profile {
             </tr>
 
         </table>
-        <script>
-        (function() {
-            var checkbox = document.getElementById('lhdn_not_malaysian');
-            var tinFields = document.querySelectorAll('.lhdn-tin-fields');
+        <?php
+        $this->enqueue_profile_script();
+    }
+
+    /**
+     * Return inline script for TIN profile fields (admin profile and my account).
+     * Used with wp_add_inline_script per WordPress plugin guidelines.
+     */
+    private function get_profile_inline_script() {
+        return "(function() {
+            var checkbox = document.getElementById('lhdn_not_malaysian') || document.getElementById('lhdn_not_malaysian_myaccount');
+            var tinFields = document.querySelectorAll('.lhdn-tin-fields, .lhdn-tin-fields-myaccount');
             var tinInput  = document.getElementById('lhdn_tin');
-            var idType    = document.getElementById('lhdn_id_type');
+            var idTypeRadios = document.querySelectorAll('input[name=\"lhdn_id_type\"]');
             var idValue   = document.getElementById('lhdn_id_value');
-            
-            // Prevent spaces in TIN input
             if (tinInput) {
                 tinInput.addEventListener('keypress', function(e) {
-                    if (e.key === ' ' || e.keyCode === 32) {
-                        e.preventDefault();
-                        return false;
-                    }
+                    if (e.key === ' ' || e.keyCode === 32) { e.preventDefault(); return false; }
                 });
-                
-                // Also prevent paste with spaces
                 tinInput.addEventListener('paste', function(e) {
                     e.preventDefault();
                     var pastedText = (e.clipboardData || window.clipboardData).getData('text');
-                    var cleanedText = pastedText.replace(/\s+/g, '').toUpperCase();
-                    this.value = cleanedText;
+                    this.value = pastedText.replace(/\\s+/g, '').toUpperCase();
                 });
-                
-                // Strip spaces on input
                 tinInput.addEventListener('input', function(e) {
-                    var value = this.value;
-                    var cleanedValue = value.replace(/\s+/g, '').toUpperCase();
-                    if (value !== cleanedValue) {
-                        this.value = cleanedValue;
-                    }
+                    var v = this.value, c = v.replace(/\\s+/g, '').toUpperCase();
+                    if (v !== c) this.value = c;
                 });
             }
-            
             if (checkbox) {
                 function toggleFields() {
-                    tinFields.forEach(function(field) {
-                        field.style.display = checkbox.checked ? 'none' : '';
-                    });
-
-                    // If checked, clear the TIN fields immediately
+                    tinFields.forEach(function(field) { field.style.display = checkbox.checked ? 'none' : ''; });
                     if (checkbox.checked) {
-                        if (tinInput) {
-                            tinInput.value = '';
-                        }
-                        if (idType) {
-                            idType.value = '';
-                        }
-                        if (idValue) {
-                            idValue.value = '';
-                        }
+                        if (tinInput) tinInput.value = '';
+                        idTypeRadios.forEach(function(r) { r.checked = false; });
+                        if (idValue) idValue.value = '';
                     }
                 }
-                
                 checkbox.addEventListener('change', toggleFields);
-                toggleFields(); // Initial state
+                toggleFields();
             }
-        })();
-        </script>
-        <?php
+        })();";
+    }
+
+    /**
+     * Enqueue profile script via wp_enqueue_script and wp_add_inline_script (WordPress plugin guidelines).
+     */
+    private function enqueue_profile_script() {
+        $version = defined('MYINVOICE_SYNC_VERSION') ? MYINVOICE_SYNC_VERSION : null;
+        wp_register_script('lhdn-user-profile', false, [], $version, true);
+        wp_enqueue_script('lhdn-user-profile');
+        // Inline script is static (no user/database input); safe for output per escaping guidelines.
+        wp_add_inline_script('lhdn-user-profile', $this->get_profile_inline_script(), 'after'); // phpcs:ignore WordPress.Security.EscapedOutput.OutputNotEscaped
     }
 
     /**
@@ -226,7 +216,7 @@ class LHDN_User_Profile {
             return;
         }
 
-        // Nonce verified above, safe to access $_POST
+        // Nonce verified above (lines 197-214), safe to access $_POST
         $not_malaysian = isset($_POST['lhdn_not_malaysian']) ? '1' : '0';
         update_user_meta($user_id, 'lhdn_not_malaysian', $not_malaysian);
         
@@ -240,6 +230,7 @@ class LHDN_User_Profile {
         }
         
         // Sanitize and strip spaces from TIN (convert to uppercase, remove all spaces)
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verified above (lhdn_nonce/lhdn_myaccount or _wpnonce) before any $_POST use
         $tin_raw = isset($_POST['lhdn_tin']) ? wp_unslash($_POST['lhdn_tin']) : '';
         $tin = strtoupper(preg_replace('/\s+/', '', sanitize_text_field($tin_raw)));
         $id_type  = isset($_POST['lhdn_id_type']) ? sanitize_text_field(wp_unslash($_POST['lhdn_id_type'])) : '';
@@ -372,20 +363,19 @@ class LHDN_User_Profile {
             </p>
 
             <p class="woocommerce-form-row woocommerce-form-row--wide form-row form-row-wide">
-                <label for="lhdn_id_type">ID Type</label>
-                <select name="lhdn_id_type" id="lhdn_id_type"
-                        class="woocommerce-Input woocommerce-Input-select">
-                    <option value="">— Select —</option>
+                <span class="lhdn-id-type-label">ID Type</span>
+                <span class="lhdn-id-type-radios" id="lhdn_id_type_myaccount" style="display:block;margin-top:0.5em;">
                     <?php
-                    foreach (['NRIC', 'PASSPORT', 'ARMY'] as $type) {
-                        printf(
-                            '<option value="%1$s" %2$s>%1$s</option>',
-                            esc_attr($type),
-                            selected($id_type, $type, false)
-                        );
-                    }
+                    $types_myaccount = ['NRIC' => 'NRIC', 'PASSPORT' => 'PASSPORT', 'ARMY' => 'ARMY'];
+                    foreach ($types_myaccount as $value => $label) :
+                        $id_attr = 'lhdn_id_type_' . strtolower($value) . '_myaccount';
                     ?>
-                </select>
+                    <label style="margin-right:1em;display:inline-block;">
+                        <input type="radio" name="lhdn_id_type" value="<?php echo esc_attr($value); ?>" id="<?php echo esc_attr($id_attr); ?>" class="woocommerce-Input woocommerce-Input-radio" <?php checked($id_type, $value); ?> />
+                        <?php echo esc_html($label); ?>
+                    </label>
+                    <?php endforeach; ?>
+                </span>
             </p>
 
             <p class="woocommerce-form-row woocommerce-form-row--wide form-row form-row-wide">
@@ -399,65 +389,9 @@ class LHDN_User_Profile {
             </div>
         </fieldset>
         <br />
-        <script>
-        (function() {
-            var checkbox = document.getElementById('lhdn_not_malaysian_myaccount');
-            var tinFields = document.querySelector('.lhdn-tin-fields-myaccount');
-            var tinInput  = document.getElementById('lhdn_tin');
-            var idType    = document.getElementById('lhdn_id_type');
-            var idValue   = document.getElementById('lhdn_id_value');
-            
-            // Prevent spaces in TIN input
-            if (tinInput) {
-                tinInput.addEventListener('keypress', function(e) {
-                    if (e.key === ' ' || e.keyCode === 32) {
-                        e.preventDefault();
-                        return false;
-                    }
-                });
-                
-                // Also prevent paste with spaces
-                tinInput.addEventListener('paste', function(e) {
-                    e.preventDefault();
-                    var pastedText = (e.clipboardData || window.clipboardData).getData('text');
-                    var cleanedText = pastedText.replace(/\s+/g, '').toUpperCase();
-                    this.value = cleanedText;
-                });
-                
-                // Strip spaces on input
-                tinInput.addEventListener('input', function(e) {
-                    var value = this.value;
-                    var cleanedValue = value.replace(/\s+/g, '').toUpperCase();
-                    if (value !== cleanedValue) {
-                        this.value = cleanedValue;
-                    }
-                });
-            }
-            
-            if (checkbox && tinFields) {
-                function toggleFields() {
-                    tinFields.style.display = checkbox.checked ? 'none' : '';
-
-                    // If checked, clear the TIN fields immediately
-                    if (checkbox.checked) {
-                        if (tinInput) {
-                            tinInput.value = '';
-                        }
-                        if (idType) {
-                            idType.value = '';
-                        }
-                        if (idValue) {
-                            idValue.value = '';
-                        }
-                    }
-                }
-                
-                checkbox.addEventListener('change', toggleFields);
-                toggleFields(); // Initial state
-            }
-        })();
-        </script>
-
+        <?php
+        $this->enqueue_profile_script();
+        ?>
         <p>If you are a Malaysian citizen, check your TIN number via the MyTax Portal (e-Daftar or Your Profile Information) or contact the HASiL Contact Centre (03-8911 1000); or visit the nearest LHDNM offices.</p>
         <?php
     }

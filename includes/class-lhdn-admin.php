@@ -52,17 +52,16 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
         $table_id = $this->get_table_id();
         $search_key = 's_' . $table_id;
         
-        // Check nonce for POST requests (search form submission)
         if (isset($_POST[$search_key]) && !empty($_POST[$search_key])) {
-            // Verify nonce for POST requests - required for security
             if (!isset($_POST['_wpnonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_POST['_wpnonce'])), 'lhdn_search_invoices')) {
-                return ''; // Invalid or missing nonce, return empty
+                return '';
             }
             return sanitize_text_field(wp_unslash($_POST[$search_key]));
-        // GET requests for search (URL parameters) - no nonce needed as they don't modify data
-        } elseif (isset($_GET[$search_key]) && !empty($_GET[$search_key])) {
-            // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- GET request for search, no data modification
-            // GET requests for read-only operations (like search) do not require nonce verification per WordPress security guidelines
+        }
+        if (isset($_GET[$search_key]) && !empty($_GET[$search_key])) {
+            if (!isset($_GET['_wpnonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['_wpnonce'])), 'lhdn_search_invoices')) {
+                return '';
+            }
             return sanitize_text_field(wp_unslash($_GET[$search_key]));
         }
         return '';
@@ -102,7 +101,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
             // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Table name from $wpdb->prefix is safe, user input is prepared via $where_values
             $total_items_query = $wpdb->prepare($total_items_query, $where_values);
         }
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared above, table name from $wpdb->prefix is safe
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared above, table name from $wpdb->prefix is safe; list table data is dynamic
         $total_items = (int) $wpdb->get_var($total_items_query);
 
         // Get items for current page
@@ -112,7 +111,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
         $query_values = array_merge($where_values, [$per_page, $offset]);
         // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared -- Table name from $wpdb->prefix is safe, user input is prepared via $query_values
         $items_query = $wpdb->prepare($items_query, $query_values);
-        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared above, table name from $wpdb->prefix is safe
+        // phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, PluginCheck.Security.DirectDB.UnescapedDBParameter -- Query is prepared above, table name from $wpdb->prefix is safe; list table data is dynamic
         $this->items = $wpdb->get_results($items_query);
 
         $this->_column_headers = [$this->get_columns(), [], []];
@@ -256,23 +255,18 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
 
         $input_id = $input_id . '_' . $table_id;
 
-        // Sanitize incoming search value from request (no escaping here)
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- GET request for search, no data modification
-        $search_value = isset($_REQUEST[$search_key])
-            ? sanitize_text_field(wp_unslash($_REQUEST[$search_key]))
-            : '';
+        // Sanitize incoming search value from request (read-only; no data modification)
+        $search_value = isset($_REQUEST[$search_key]) ? sanitize_text_field(wp_unslash($_REQUEST[$search_key])) : ''; // phpcs:ignore WordPress.Security.NonceVerification.Recommended
 
-        // Sanitize sorting parameters from request (no escaping here)
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- GET request for sorting, no data modification
+        // Sanitize sorting parameters from request (read-only; no data modification)
         $orderby = '';
-        if (!empty($_REQUEST['orderby'])) {
+        if (!empty($_REQUEST['orderby'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
             $orderby = sanitize_text_field(wp_unslash($_REQUEST['orderby']));
             echo '<input type="hidden" name="orderby" value="' . esc_attr($orderby) . '" />';
         }
 
-        // phpcs:ignore WordPress.Security.NonceVerification.Recommended -- GET request for sorting, no data modification
         $order = '';
-        if (!empty($_REQUEST['order'])) {
+        if (!empty($_REQUEST['order'])) { // phpcs:ignore WordPress.Security.NonceVerification.Recommended
             $order_raw = sanitize_text_field(wp_unslash($_REQUEST['order']));
             $order     = in_array(strtolower($order_raw), ['asc', 'desc'], true) ? strtolower($order_raw) : '';
             if ($order !== '') {

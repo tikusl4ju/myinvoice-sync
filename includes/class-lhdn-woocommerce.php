@@ -258,7 +258,10 @@ class LHDN_WooCommerce {
         }
 
         if (!LHDN_Settings::is_plugin_active()) {
-            $redirect_to = add_query_arg('lhdn_bulk_error', urlencode(__('Plugin is inactive.', 'myinvoice-sync')), $redirect_to);
+            $redirect_to = add_query_arg([
+                'lhdn_bulk_error' => urlencode(__('Plugin is inactive.', 'myinvoice-sync')),
+                'lhdn_bulk_nonce' => wp_create_nonce('lhdn_bulk_result'),
+            ], $redirect_to);
             return $redirect_to;
         }
 
@@ -321,11 +324,12 @@ class LHDN_WooCommerce {
             usleep(100000); // 0.1 second
         }
 
-        // Add result message to redirect URL
+        // Add result message and nonce to redirect URL for secure display
         $redirect_to = add_query_arg([
             'lhdn_bulk_processed' => $processed,
             'lhdn_bulk_skipped' => $skipped,
             'lhdn_bulk_errors' => $errors,
+            'lhdn_bulk_nonce' => wp_create_nonce('lhdn_bulk_result'),
         ], $redirect_to);
 
         return $redirect_to;
@@ -335,7 +339,14 @@ class LHDN_WooCommerce {
      * Display bulk action result notices
      */
     public function display_bulk_action_notices() {
+        if (!current_user_can('manage_woocommerce')) {
+            return;
+        }
         if (!isset($_GET['lhdn_bulk_processed']) && !isset($_GET['lhdn_bulk_skipped']) && !isset($_GET['lhdn_bulk_errors']) && !isset($_GET['lhdn_bulk_error'])) {
+            return;
+        }
+        // Verify nonce so only our bulk-action redirect can show these messages
+        if (!isset($_GET['lhdn_bulk_nonce']) || !wp_verify_nonce(sanitize_text_field(wp_unslash($_GET['lhdn_bulk_nonce'])), 'lhdn_bulk_result')) {
             return;
         }
 
