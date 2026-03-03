@@ -132,54 +132,12 @@ class LHDN_User_Profile {
     }
 
     /**
-     * Return inline script for TIN profile fields (admin profile and my account).
-     * Used with wp_add_inline_script per WordPress plugin guidelines.
-     */
-    private function get_profile_inline_script() {
-        return "(function() {
-            var checkbox = document.getElementById('lhdn_not_malaysian') || document.getElementById('lhdn_not_malaysian_myaccount');
-            var tinFields = document.querySelectorAll('.lhdn-tin-fields, .lhdn-tin-fields-myaccount');
-            var tinInput  = document.getElementById('lhdn_tin');
-            var idTypeRadios = document.querySelectorAll('input[name=\"lhdn_id_type\"]');
-            var idValue   = document.getElementById('lhdn_id_value');
-            if (tinInput) {
-                tinInput.addEventListener('keypress', function(e) {
-                    if (e.key === ' ' || e.keyCode === 32) { e.preventDefault(); return false; }
-                });
-                tinInput.addEventListener('paste', function(e) {
-                    e.preventDefault();
-                    var pastedText = (e.clipboardData || window.clipboardData).getData('text');
-                    this.value = pastedText.replace(/\\s+/g, '').toUpperCase();
-                });
-                tinInput.addEventListener('input', function(e) {
-                    var v = this.value, c = v.replace(/\\s+/g, '').toUpperCase();
-                    if (v !== c) this.value = c;
-                });
-            }
-            if (checkbox) {
-                function toggleFields() {
-                    tinFields.forEach(function(field) { field.style.display = checkbox.checked ? 'none' : ''; });
-                    if (checkbox.checked) {
-                        if (tinInput) tinInput.value = '';
-                        idTypeRadios.forEach(function(r) { r.checked = false; });
-                        if (idValue) idValue.value = '';
-                    }
-                }
-                checkbox.addEventListener('change', toggleFields);
-                toggleFields();
-            }
-        })();";
-    }
-
-    /**
-     * Enqueue profile script via wp_enqueue_script and wp_add_inline_script (WordPress plugin guidelines).
+     * Enqueue profile script from a static JS file.
      */
     private function enqueue_profile_script() {
         $version = defined('MYINVOICE_SYNC_VERSION') ? MYINVOICE_SYNC_VERSION : null;
-        wp_register_script('lhdn-user-profile', false, [], $version, true);
-        wp_enqueue_script('lhdn-user-profile');
-        // Inline script is static (no user/database input); safe for output per escaping guidelines.
-        wp_add_inline_script('lhdn-user-profile', $this->get_profile_inline_script(), 'after'); // phpcs:ignore WordPress.Security.EscapedOutput.OutputNotEscaped
+        $src     = plugin_dir_url(__FILE__) . '../assets/js/lhdn-user-profile.js';
+        wp_enqueue_script('lhdn-user-profile', $src, [], $version, true);
     }
 
     /**
