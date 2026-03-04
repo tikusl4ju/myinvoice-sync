@@ -148,33 +148,26 @@ class LHDN_User_Profile {
             LHDN_Logger::log("User TIN validation skipped for user {$user_id} (plugin inactive)");
             return;
         }
-        
+
         if (!current_user_can('edit_user', $user_id)) {
             return;
         }
 
-        // Verify nonce - required for security
-        // Check for custom plugin nonce first
-        if (isset($_POST['lhdn_nonce'])) {
+        // Require nonce before reading any POST data. Use canonical WordPress APIs so scanners detect verification.
+        if (!empty($_POST['_wpnonce'])) {
+            check_admin_referer('update-user_' . $user_id);
+        } elseif (!empty($_POST['lhdn_nonce'])) {
             $nonce = sanitize_text_field(wp_unslash($_POST['lhdn_nonce']));
             if (!wp_verify_nonce($nonce, 'lhdn_user_profile') && !wp_verify_nonce($nonce, 'lhdn_myaccount')) {
                 LHDN_Logger::log('LHDN nonce verification failed');
                 return;
             }
-        } elseif (isset($_POST['_wpnonce'])) {
-            // Check for WordPress standard profile update nonce
-            $nonce = sanitize_text_field(wp_unslash($_POST['_wpnonce']));
-            if (!wp_verify_nonce($nonce, 'update-user_' . $user_id)) {
-                LHDN_Logger::log('LHDN nonce verification failed (WordPress nonce)');
-                return;
-            }
         } else {
-            // No nonce found - reject request
             LHDN_Logger::log('LHDN nonce verification failed (no nonce found)');
             return;
         }
 
-        // Nonce verified above (lines 197-214), safe to access $_POST
+        // Nonce verified above; safe to read $_POST for this request.
         $not_malaysian = isset($_POST['lhdn_not_malaysian']) ? '1' : '0';
         update_user_meta($user_id, 'lhdn_not_malaysian', $not_malaysian);
         
@@ -188,7 +181,7 @@ class LHDN_User_Profile {
         }
         
         // Sanitize and strip spaces from TIN (convert to uppercase, remove all spaces)
-        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verified above (lhdn_nonce/lhdn_myaccount or _wpnonce) before any $_POST use
+        // phpcs:ignore WordPress.Security.NonceVerification.Missing -- Nonce verified via check_admin_referer or wp_verify_nonce above before any $_POST use
         $tin_raw = isset($_POST['lhdn_tin']) ? wp_unslash($_POST['lhdn_tin']) : '';
         $tin = strtoupper(preg_replace('/\s+/', '', sanitize_text_field($tin_raw)));
         $id_type  = isset($_POST['lhdn_id_type']) ? sanitize_text_field(wp_unslash($_POST['lhdn_id_type'])) : '';

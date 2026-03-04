@@ -553,58 +553,39 @@ openssl x509 -in lhdn.pem -noout -dates
 openssl x509 -in lhdn.pem -noout -startdate -enddate
 ```
 
-== External Services ==
+## External Services
 
-This plugin connects to the LHDN (Lembaga Hasil Dalam Negeri) MyInvois API to submit invoices, validate taxpayer information, and retrieve invoice statuses. This is required for compliance with Malaysian tax regulations.
+This plugin connects to **third-party external services** operated by LHDN (Lembaga Hasil Dalam Negeri / Malaysian Inland Revenue Board). Users should be aware of the following before use.
 
-**What the service is and what it is used for:**
-- The LHDN MyInvois API is the official Malaysian government service for electronic invoice submission and management
-- The plugin uses this service to automatically submit invoices generated from WooCommerce orders
-- The service validates Tax Identification Numbers (TIN) for customers
-- The service provides invoice status updates and document retrieval
+### What the service is and what it is used for
 
-**Where the service is hosted (domains):**
-- API base URLs are configured in the plugin settings and typically point to:
-  - Sandbox (Pre-Production): `https://preprod-api.myinvois.hasil.gov.my`
-  - Production: `https://api.myinvois.hasil.gov.my`
-- Document viewing links in the admin UI point to the official MyInvois portal, for example:
-  - Sandbox portal: `https://preprod.myinvois.hasil.gov.my`
-  - Production portal: `https://myinvois.hasil.gov.my`
+- **LHDN MyInvois API** — Official Malaysian government service for electronic invoice submission and management. The plugin uses it to:
+  - Submit invoices generated from WooCommerce orders
+  - Validate Tax Identification Numbers (TIN) for customers
+  - Retrieve invoice statuses and document details
+  - Cancel documents and submit credit/refund notes
 
-**What data is sent and when:**
-- **Invoice Data**: When a WooCommerce order reaches the configured status (completed/processing or after delay), the plugin sends invoice data including:
-  - Invoice number, date, and amounts
-  - Buyer information (name, TIN, ID type, ID value, address, contact details)
-  - Seller information (TIN, SST/TTX numbers, address, contact details)
-  - Line items (products, quantities, prices, descriptions)
-  - Tax information and industry classification codes
-- **TIN Validation**: When a user submits their TIN information in their profile, the plugin sends:
-  - Tax Identification Number (TIN)
-  - ID Type (NRIC, Passport, BRN, etc.)
-  - ID Value
-- **Status Queries**: The plugin periodically queries the API to retrieve invoice submission statuses
-- **Token Requests**: OAuth access tokens are requested and refreshed as needed for API authentication
+### Domains (where the service is hosted)
 
-**Service Provider:**
-- **Service Name**: LHDN MyInvois
-- **Provider**: Lembaga Hasil Dalam Negeri (Malaysian Inland Revenue Board)
-- **Terms of Service**: https://myinvois.hasil.gov.my/terms
-- **Privacy Policy**: https://myinvois.hasil.gov.my/privacy
-- **API Documentation**: https://myinvois.hasil.gov.my/api-documentation
+| Environment | API | Portal |
+|-------------|-----|--------|
+| Sandbox (Pre-Production) | `https://preprod-api.myinvois.hasil.gov.my` | `https://preprod.myinvois.hasil.gov.my` |
+| Production | `https://api.myinvois.hasil.gov.my` | `https://myinvois.hasil.gov.my` |
 
-**Data Transmission:**
-- All data is transmitted over HTTPS (encrypted)
-- OAuth 2.0 authentication is used for API access
-- Data is only sent when:
-  - An order is submitted (based on billing circle configuration)
-  - A user validates their TIN in their profile
-  - The plugin syncs invoice statuses (via cron jobs)
-  - Manual invoice submission is triggered from the admin panel
+### What data is sent and when
 
-**User Control:**
-- Users can disable automatic invoice submission by deactivating the plugin
-- TIN validation is optional and only performed when users voluntarily enter their TIN information
-- Users can view and manage their TIN information in their WordPress/WooCommerce account profile
+- **Invoice data** — When an order reaches the configured status (completed/processing or after a delay), the plugin sends: invoice number, date, amounts, buyer and seller information (name, TIN, ID type, ID value, address, contact), line items, tax information, and industry codes.
+- **TIN validation** — When a user submits TIN in their profile: Tax Identification Number, ID Type (e.g. NRIC, Passport), and ID Value.
+- **Status and document requests** — The plugin requests invoice status and document details from the API (e.g. during sync cron or when viewing details).
+- **OAuth** — Client credentials are sent to obtain access tokens for API authentication.
+
+Data is sent only when you submit orders, validate TIN, sync statuses, or perform manual actions from the admin panel. All communication uses HTTPS and OAuth 2.0.
+
+### Service provider and policies
+
+- **Provider:** Lembaga Hasil Dalam Negeri (LHDN / Malaysian Inland Revenue Board)
+- **Terms of use:** [myinvois.hasil.gov.my/terms](https://myinvois.hasil.gov.my/terms)
+- **Privacy policy:** [myinvois.hasil.gov.my/privacy](https://myinvois.hasil.gov.my/privacy)
 
 ## Credits
 Developed for Malaysian businesses requiring LHDN MyInvois compliance.
