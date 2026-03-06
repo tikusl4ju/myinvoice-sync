@@ -1,14 +1,14 @@
 # MyInvoice Sync
 
-**Contributors:** nadzree, tikusL4ju   
+**Contributors:** nadzree   
 **Tags:** lhdn, myinvoice, myinvois, einvoice, woocommerce  
 **Requires at least:** 5.0  
 **Tested up to:** 6.9  
-**Stable tag:** 2.0.12  
+**Stable tag:** 2.1.0  
 **License:** GPLv2 or later  
 **License URI:** https://www.gnu.org/licenses/gpl-2.0.html  
-**Version:** 2.0.12  
-**Repository:** [GitHub](https://github.com/tikusl4ju/myinvoice-sync)  
+**Version:** 2.1.0  
+**Repository:** [GitHub](https://github.com/tikusl4ju/myinvoice-sync) [Wordpress](https://wordpress.org/plugins/myinvoice-sync/)  
 
 == Description ==
 
