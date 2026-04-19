@@ -53,8 +53,8 @@ if (!function_exists('lhdn_country_iso2_to_iso3')) {
 }
 
 if (!function_exists('lhdn_wc_state_to_lhdn')) {
-    function lhdn_wc_state_to_lhdn($wc_state) {
-        return LHDN_Helpers::wc_state_to_lhdn($wc_state);
+    function lhdn_wc_state_to_lhdn($wc_state, $for_consolidated_invoice = true) {
+        return LHDN_Helpers::wc_state_to_lhdn($wc_state, $for_consolidated_invoice);
     }
 }
 

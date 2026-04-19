@@ -71,11 +71,47 @@ class LHDN_Helpers {
     }
 
     /**
-     * WooCommerce state to LHDN code
+     * Map WooCommerce Malaysian state code to LHDN CountrySubentityCode (01–17).
+     *
+     * Code 17 is reserved for consolidated invoices only; using it on a normal / e-commerce
+     * document triggers API error CV317 ("State Codes 17 should be used for Consolidated Invoice only - Buyer").
+     *
+     * @param string $wc_state WooCommerce state key (e.g. SL, WP) or empty if unknown.
+     * @param bool   $for_consolidated_invoice When true, unknown states map to 17 (Not Applicable).
      */
-    public static function wc_state_to_lhdn($wc_state) {
+    public static function wc_state_to_lhdn($wc_state, $for_consolidated_invoice = true) {
         $states = self::get_state_options();
-        return $states[$wc_state]['code'] ?? '17';
+        $wc_state = is_string($wc_state) ? $wc_state : '';
+
+        if ($wc_state !== '' && isset($states[$wc_state])) {
+            $code = $states[$wc_state]['code'];
+            if ($code === '17' && !$for_consolidated_invoice) {
+                return self::lhdn_state_code_fallback_non_consolidated();
+            }
+
+            return $code;
+        }
+
+        if ($for_consolidated_invoice) {
+            return '17';
+        }
+
+        return self::lhdn_state_code_fallback_non_consolidated();
+    }
+
+    /**
+     * Valid Malaysian sub-entity code when 17 is not allowed (non-consolidated invoice).
+     */
+    private static function lhdn_state_code_fallback_non_consolidated() {
+        $states = self::get_state_options();
+        $seller_wc = (defined('LHDN_SELLER_ADDRESS_STATE') && LHDN_SELLER_ADDRESS_STATE !== '')
+            ? LHDN_SELLER_ADDRESS_STATE
+            : 'WP';
+        if (isset($states[$seller_wc])) {
+            return $states[$seller_wc]['code'];
+        }
+
+        return '14';
     }
 
     /**

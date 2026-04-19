@@ -26,11 +26,13 @@ class LHDN_Invoice {
     /**
      * Get buyer address with fallback: profile -> billing -> shipping
      * 
-     * @param int $user_id User ID
-     * @param WC_Order|null $order WooCommerce order object
+     * @param int             $user_id                   User ID.
+     * @param WC_Order|null   $order                     WooCommerce order object.
+     * @param string          $item_classification_code LHDN line classification (004 = consolidated, 008 = e-commerce, etc.).
      * @return array Address array with keys: line1, city, postcode, state_code, country
      */
-    private function get_buyer_address($user_id, $order = null) {
+    private function get_buyer_address($user_id, $order = null, $item_classification_code = '004') {
+        $consolidated_invoice = ($item_classification_code === '004');
         $address = [
             'line1'      => '',
             'city'       => '',
@@ -54,7 +56,7 @@ class LHDN_Invoice {
                 $address['line1'] = $profile_line1;
                 $address['city'] = $profile_city ?: $profile_country;
                 $address['postcode'] = $profile_postcode;
-                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($profile_state);
+                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($profile_state, $consolidated_invoice);
                 $address['country'] = LHDN_Helpers::country_iso2_to_iso3($profile_country);
                 return $address;
             }
@@ -72,7 +74,7 @@ class LHDN_Invoice {
                 $address['line1'] = $billing_line1;
                 $address['city'] = $billing_city ?: $billing_country;
                 $address['postcode'] = $billing_postcode;
-                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($billing_state);
+                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($billing_state, $consolidated_invoice);
                 $address['country'] = LHDN_Helpers::country_iso2_to_iso3($billing_country);
                 return $address;
             }
@@ -90,7 +92,7 @@ class LHDN_Invoice {
                 $address['line1'] = $shipping_line1;
                 $address['city'] = $shipping_city ?: $shipping_country;
                 $address['postcode'] = $shipping_postcode;
-                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($shipping_state);
+                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($shipping_state, $consolidated_invoice);
                 $address['country'] = LHDN_Helpers::country_iso2_to_iso3($shipping_country);
                 return $address;
             }
@@ -536,9 +538,6 @@ class LHDN_Invoice {
             LHDN_Logger::log("WC Order #{$order->get_id()}: Phone number missing, using default");
         }
 
-        // Get buyer address with fallback: profile -> billing -> shipping
-        $buyer_address = $this->get_buyer_address($user_id, $order);
-
         // Get buyer name (profile company/name, fallback to order billing)
         $buyer_name = '';
         if ($user_id > 0) {
@@ -568,6 +567,9 @@ class LHDN_Invoice {
             $buyer_email = $order->get_billing_email();
         }
 
+        // Get buyer address with fallback: profile -> billing -> shipping (after item_classification_code is known — CV317)
+        $buyer_address = $this->get_buyer_address($user_id, $order, $item_classification_code);
+
         return $this->submit([
             'invoice_no' => $order->get_order_number(),
             'order_id' => $order->get_id(),
@@ -584,7 +586,7 @@ class LHDN_Invoice {
             'seller_address' => [
                 'city'       => LHDN_SELLER_ADDRESS_CITY,
                 'postcode'   => LHDN_SELLER_ADDRESS_POSTCODE,
-                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE),
+                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE, false),
                 'line1'      => LHDN_SELLER_ADDRESS_LINE1,
                 'country'    => LHDN_SELLER_ADDRESS_COUNTRY,
             ],
@@ -622,7 +624,7 @@ class LHDN_Invoice {
                 'address'        => [
                       'city'       => 'Kuala Lumpur',
                       'postcode'   => '50480',
-                      'state_code' => LHDN_Helpers::wc_state_to_lhdn('WP'),
+                      'state_code' => LHDN_Helpers::wc_state_to_lhdn('WP', false),
                       'line1'      => 'Lot 77, Jalan Test',
                       'country'    => 'MYS',
                 ]
@@ -630,7 +632,7 @@ class LHDN_Invoice {
             'seller_address' => [
                 'city'       => LHDN_SELLER_ADDRESS_CITY,
                 'postcode'   => LHDN_SELLER_ADDRESS_POSTCODE,
-                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE),
+                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE, false),
                 'line1'      => LHDN_SELLER_ADDRESS_LINE1,
                 'country'    => LHDN_SELLER_ADDRESS_COUNTRY,
             ],
@@ -814,9 +816,6 @@ class LHDN_Invoice {
                 LHDN_Logger::log("WC Order #{$order->get_id()}: Phone number missing for credit note, using default");
             }
 
-            // Get buyer address with fallback: profile -> billing -> shipping
-            $buyer_address = $this->get_buyer_address($user_id, $order);
-
             // Get buyer name (profile company/name, fallback to order billing)
             $buyer_name = '';
             if ($user_id > 0) {
@@ -845,6 +844,9 @@ class LHDN_Invoice {
             if (empty($buyer_email)) {
                 $buyer_email = $order->get_billing_email();
             }
+
+            // Get buyer address with fallback: profile -> billing -> shipping (CV317: state 17 only when consolidated)
+            $buyer_address = $this->get_buyer_address($user_id, $order, $item_classification_code);
 
             $buyer_data = [
                 'tin'            => $tin,
@@ -964,7 +966,7 @@ class LHDN_Invoice {
             'seller_address' => [
                 'city'       => LHDN_SELLER_ADDRESS_CITY,
                 'postcode'   => LHDN_SELLER_ADDRESS_POSTCODE,
-                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE),
+                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE, false),
                 'line1'      => LHDN_SELLER_ADDRESS_LINE1,
                 'country'    => LHDN_SELLER_ADDRESS_COUNTRY,
             ],
@@ -1170,9 +1172,6 @@ class LHDN_Invoice {
                 LHDN_Logger::log("WC Order #{$order->get_id()}: Phone number missing for refund note, using default");
             }
 
-            // Get buyer address with fallback: profile -> billing -> shipping
-            $buyer_address = $this->get_buyer_address($user_id, $order);
-
             // Get buyer name (profile company/name, fallback to order billing)
             $buyer_name = '';
             if ($user_id > 0) {
@@ -1201,6 +1200,9 @@ class LHDN_Invoice {
             if (empty($buyer_email)) {
                 $buyer_email = $order->get_billing_email();
             }
+
+            // Get buyer address with fallback: profile -> billing -> shipping (CV317: state 17 only when consolidated)
+            $buyer_address = $this->get_buyer_address($user_id, $order, $item_classification_code);
 
             $buyer_data = [
                 'tin'            => $tin,
@@ -1320,7 +1322,7 @@ class LHDN_Invoice {
             'seller_address' => [
                 'city'       => LHDN_SELLER_ADDRESS_CITY,
                 'postcode'   => LHDN_SELLER_ADDRESS_POSTCODE,
-                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE),
+                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE, false),
                 'line1'      => LHDN_SELLER_ADDRESS_LINE1,
                 'country'    => LHDN_SELLER_ADDRESS_COUNTRY,
             ],
@@ -1509,9 +1511,6 @@ class LHDN_Invoice {
             LHDN_Logger::log("WC Order #{$order->get_id()} resubmit: Phone number missing, using default");
         }
 
-        // Get buyer address with fallback: profile -> billing -> shipping
-        $buyer_address = $this->get_buyer_address($user_id, $order);
-
         // Get buyer name (profile company/name, fallback to order billing)
         $buyer_name = '';
         if ($user_id > 0) {
@@ -1541,6 +1540,9 @@ class LHDN_Invoice {
             $buyer_email = $order->get_billing_email();
         }
 
+        // Get buyer address with fallback: profile -> billing -> shipping (CV317: state 17 only when consolidated)
+        $buyer_address = $this->get_buyer_address($user_id, $order, $item_classification_code);
+
         return $this->submit([
             'invoice_no' => $ordernum,
             'order_id' => $order->get_id(),
@@ -1557,7 +1559,7 @@ class LHDN_Invoice {
             'seller_address' => [
                 'city'       => LHDN_SELLER_ADDRESS_CITY,
                 'postcode'   => LHDN_SELLER_ADDRESS_POSTCODE,
-                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE),
+                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE, false),
                 'line1'      => LHDN_SELLER_ADDRESS_LINE1,
                 'country'    => LHDN_SELLER_ADDRESS_COUNTRY,
             ],
@@ -1595,7 +1597,7 @@ class LHDN_Invoice {
                 'address' => [
                     'city'       => 'Kuala Lumpur',
                     'postcode'   => '50480',
-                    'state_code' => LHDN_Helpers::wc_state_to_lhdn('WP'),
+                    'state_code' => LHDN_Helpers::wc_state_to_lhdn('WP', false),
                     'line1'      => 'Lot 77, Jalan Test',
                     'country'    => 'MYS',
                 ]
@@ -1603,7 +1605,7 @@ class LHDN_Invoice {
             'seller_address' => [
                 'city'       => LHDN_SELLER_ADDRESS_CITY,
                 'postcode'   => LHDN_SELLER_ADDRESS_POSTCODE,
-                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE),
+                'state_code' => LHDN_Helpers::wc_state_to_lhdn(LHDN_SELLER_ADDRESS_STATE, false),
                 'line1'      => LHDN_SELLER_ADDRESS_LINE1,
                 'country'    => LHDN_SELLER_ADDRESS_COUNTRY,
             ],
