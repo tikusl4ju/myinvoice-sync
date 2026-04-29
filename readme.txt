@@ -4,7 +4,7 @@ Contributors: nadzree
 Tags: lhdn, myinvoice, myinvois, einvoice, woocommerce
 Requires at least: 5.0
 Tested up to: 6.9
-Stable tag: 2.1.1
+Stable tag: 2.1.2
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -117,6 +117,10 @@ Yes. You can switch between Sandbox and Production in the plugin settings. API/p
 
 == Changelog ==
 
+= 2.1.2 =
+* Keep foreign buyers on normal e-commerce invoice flow (TIN EI00000000020) instead of consolidated mode.
+* Use country-aware buyer state mapping to avoid sending Malaysian state codes for non-Malaysian countries (prevents CV316).
+
 = 2.1.1 =
 * Fix MyInvois CV317: buyer state code 17 (Not Applicable) is only sent for consolidated invoices; e-commerce and other types fall back to the configured seller state when the WooCommerce state is unknown.
 
@@ -128,6 +132,9 @@ Yes. You can switch between Sandbox and Production in the plugin settings. API/p
 * Maintenance and compatibility updates.
 
 == Upgrade Notice ==
+
+= 2.1.2 =
+Fixes foreign buyer invoice validation by preserving normal e-commerce flow (TIN EI00000000020) and using country-aware state handling for non-Malaysian addresses.
 
 = 2.1.1 =
 Fix for MyInvois validation error CV317 on non-consolidated invoices when buyer state was missing or unmapped.
