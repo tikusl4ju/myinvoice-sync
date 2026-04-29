@@ -16,6 +16,25 @@ class LHDN_Invoice {
     }
 
     /**
+     * Resolve buyer state code for LHDN by country context.
+     *
+     * For Malaysian buyers, use the existing WC->LHDN state mapping.
+     * For non-Malaysian buyers, do not send Malaysian numeric state codes (01-16),
+     * which are only valid when country is MYS (CV316).
+     */
+    private function resolve_buyer_state_code($wc_state, $country_iso2, $for_consolidated_invoice) {
+        $country_iso2 = is_string($country_iso2) ? strtoupper(trim($country_iso2)) : '';
+        $wc_state = is_string($wc_state) ? trim($wc_state) : '';
+
+        if ($country_iso2 === 'MY') {
+            return LHDN_Helpers::wc_state_to_lhdn($wc_state, $for_consolidated_invoice);
+        }
+
+        // Foreign buyer: use a neutral non-Malaysian state code to avoid CV316.
+        return 'NA';
+    }
+
+    /**
      * Force refresh token for cron jobs
      * This ensures a fresh token is obtained at the start of each cron run
      */
@@ -56,7 +75,7 @@ class LHDN_Invoice {
                 $address['line1'] = $profile_line1;
                 $address['city'] = $profile_city ?: $profile_country;
                 $address['postcode'] = $profile_postcode;
-                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($profile_state, $consolidated_invoice);
+                $address['state_code'] = $this->resolve_buyer_state_code($profile_state, $profile_country, $consolidated_invoice);
                 $address['country'] = LHDN_Helpers::country_iso2_to_iso3($profile_country);
                 return $address;
             }
@@ -74,7 +93,7 @@ class LHDN_Invoice {
                 $address['line1'] = $billing_line1;
                 $address['city'] = $billing_city ?: $billing_country;
                 $address['postcode'] = $billing_postcode;
-                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($billing_state, $consolidated_invoice);
+                $address['state_code'] = $this->resolve_buyer_state_code($billing_state, $billing_country, $consolidated_invoice);
                 $address['country'] = LHDN_Helpers::country_iso2_to_iso3($billing_country);
                 return $address;
             }
@@ -92,7 +111,7 @@ class LHDN_Invoice {
                 $address['line1'] = $shipping_line1;
                 $address['city'] = $shipping_city ?: $shipping_country;
                 $address['postcode'] = $shipping_postcode;
-                $address['state_code'] = LHDN_Helpers::wc_state_to_lhdn($shipping_state, $consolidated_invoice);
+                $address['state_code'] = $this->resolve_buyer_state_code($shipping_state, $shipping_country, $consolidated_invoice);
                 $address['country'] = LHDN_Helpers::country_iso2_to_iso3($shipping_country);
                 return $address;
             }
