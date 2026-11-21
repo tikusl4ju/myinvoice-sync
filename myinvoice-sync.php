@@ -4,7 +4,7 @@
  * Plugin URI: https://github.com/tikusl4ju/myinvoice-sync
  * Description: LHDN MyInvois Auto Submission
  * Author: TikusL4ju
- * Version: 2.1.2
+ * Version: 2.1.3
  * Requires at least: 5.0
  * Requires PHP: 7.4
  * WC requires at least: 7.1
@@ -17,7 +17,7 @@
 if (!defined('ABSPATH')) exit;
 
 if (!defined('MYINVOICE_SYNC_VERSION')) {
-    define('MYINVOICE_SYNC_VERSION', '2.1.2');
+    define('MYINVOICE_SYNC_VERSION', '2.1.3');
 }
 
 if (!defined('MYINVOICE_SYNC_FILE')) {

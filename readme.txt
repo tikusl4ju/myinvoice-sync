@@ -4,7 +4,7 @@ Contributors: nadzree
 Tags: lhdn, myinvoice, myinvois, einvoice, woocommerce
 Requires at least: 5.0
 Tested up to: 7.1
-Stable tag: 2.1.2
+Stable tag: 2.1.3
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -117,6 +117,14 @@ Yes. You can switch between Sandbox and Production in the plugin settings. API/p
 
 == Changelog ==
 
+= 2.1.3 =
+* Map WooCommerce Malaysian state codes (e.g. SGR, JHR, KUL) to the correct LHDN state codes; previously buyer states fell back to the seller state.
+* Enforce TIN verification on the WooCommerce Checkout block and show the TIN status badge there.
+* Declare compatibility with WooCommerce High-Performance Order Storage (HPOS) and Cart/Checkout blocks.
+* Fix activation/deactivation hooks so scheduled cron events are cleared on deactivation.
+* Use HPOS-aware order edit links and show the LHDN column on the legacy orders screen.
+* Tested up to WordPress 7.1 and WooCommerce 11.3.
+
 = 2.1.2 =
 * Keep foreign buyers on normal e-commerce invoice flow (TIN EI00000000020) instead of consolidated mode.
 * Use country-aware buyer state mapping to avoid sending Malaysian state codes for non-Malaysian countries (prevents CV316).
@@ -132,6 +140,9 @@ Yes. You can switch between Sandbox and Production in the plugin settings. API/p
 * Maintenance and compatibility updates.
 
 == Upgrade Notice ==
+
+= 2.1.3 =
+Fixes buyer state codes for WooCommerce addresses and enforces TIN verification on the block checkout. Adds WooCommerce HPOS compatibility.
 
 = 2.1.2 =
 Fixes foreign buyer invoice validation by preserving normal e-commerce flow (TIN EI00000000020) and using country-aware state handling for non-Malaysian addresses.
