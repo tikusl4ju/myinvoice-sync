@@ -356,8 +356,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
                 
                 // If order found, create link to edit page
                 if ($order) {
-                    $order_id = $order->get_id();
-                    $edit_url = admin_url('post.php?post=' . $order_id . '&action=edit');
+                    $edit_url = $order->get_edit_order_url();
                     return sprintf(
                         '<a href="%s" target="_blank">%s</a>',
                         esc_url($edit_url),
@@ -394,7 +393,7 @@ abstract class LHDN_Base_Invoice_Table extends WP_List_Table {
                     $order = wc_get_order((int) $order_id);
                     // Skip if it's a refund, not an order
                     if ($order && !is_a($order, 'WC_Order_Refund')) {
-                        $edit_url = admin_url('post.php?post=' . $order_id . '&action=edit');
+                        $edit_url = $order->get_edit_order_url();
                         return sprintf(
                             '<a href="%s" target="_blank">#%s</a>',
                             esc_url($edit_url),

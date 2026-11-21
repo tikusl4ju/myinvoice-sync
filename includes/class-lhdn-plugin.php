@@ -119,8 +119,8 @@ class LHDN_MyInvoice_Plugin {
         $this->register_hooks();
         
         // Activation/Deactivation
-        register_activation_hook(plugin_dir_path(__FILE__) . '../lhdn-myinvoice.php', [$this, 'activate']);
-        register_deactivation_hook(plugin_dir_path(__FILE__) . '../lhdn-myinvoice.php', [$this, 'deactivate']);
+        register_activation_hook(MYINVOICE_SYNC_FILE, [$this, 'activate']);
+        register_deactivation_hook(MYINVOICE_SYNC_FILE, [$this, 'deactivate']);
     }
 
     /**
@@ -261,6 +261,7 @@ class LHDN_MyInvoice_Plugin {
         add_action('woocommerce_order_status_completed', [$this->woocommerce, 'submit_from_wc_order'], 10, 1);
         add_action('woocommerce_order_status_processing', [$this->woocommerce, 'submit_from_wc_order_processing'], 10, 1);
         add_action('woocommerce_checkout_process', [$this->woocommerce, 'validate_tin_on_checkout']);
+        add_action('woocommerce_store_api_checkout_update_order_from_request', [$this->woocommerce, 'validate_tin_on_block_checkout'], 10, 2);
         // Auto credit note on refund (full credit); guarded against duplicates in handler
         add_action('woocommerce_order_refunded', [$this->woocommerce, 'handle_order_refunded'], 10, 2);
         
@@ -277,6 +278,8 @@ class LHDN_MyInvoice_Plugin {
         }
         add_filter('manage_woocommerce_page_wc-orders_columns', [$this->woocommerce, 'add_order_column'], 20);
         add_action('manage_woocommerce_page_wc-orders_custom_column', [$this->woocommerce, 'orders_list_column_content'], 20, 2);
+        add_filter('manage_edit-shop_order_columns', [$this->woocommerce, 'add_order_column'], 20);
+        add_action('manage_shop_order_posts_custom_column', [$this->woocommerce, 'legacy_orders_list_column_content'], 20, 2);
         
         // Bulk actions for WooCommerce orders
         add_filter('bulk_actions-woocommerce_page_wc-orders', [$this->woocommerce, 'add_bulk_actions'], 20);
@@ -302,6 +305,7 @@ class LHDN_MyInvoice_Plugin {
         add_action('woocommerce_edit_account_form', [$this->user_profile, 'add_myaccount_fields']);
         add_action('woocommerce_save_account_details', [$this->user_profile, 'save_myaccount_fields'], 20);
         add_action('woocommerce_before_checkout_form', [$this->user_profile, 'show_tin_status_badge']);
+        add_filter('render_block_woocommerce/checkout', [$this->user_profile, 'prepend_tin_status_badge_to_checkout_block']);
         
         // Frontend scripts (checkout)
         add_action('wp_enqueue_scripts', [$this, 'enqueue_checkout_scripts']);
@@ -367,14 +371,22 @@ class LHDN_MyInvoice_Plugin {
         
         // Add inline script to handle country change
         $script = "(function($) {
+            function getBlockCheckoutCountry() {
+                if (!window.wp || !wp.data || !wp.data.select('wc/store/cart')) {
+                    return '';
+                }
+                var customer = wp.data.select('wc/store/cart').getCustomerData();
+                return (customer && customer.billingAddress && customer.billingAddress.country) || '';
+            }
+
             function toggleTinBadge() {
                 var \$badge = $('#lhdn-tin-status-badge');
                 if (\$badge.length === 0) {
                     return; // Badge not present
                 }
                 
-                // Get selected country
-                var country = $('#billing_country').val() || '';
+                // Get selected country (classic checkout field, then Checkout block store)
+                var country = $('#billing_country').val() || getBlockCheckoutCountry();
                 
                 // Hide badge if country is not Malaysia (MY)
                 if (country && country !== 'MY') {
@@ -397,6 +409,18 @@ class LHDN_MyInvoice_Plugin {
                 $(document.body).on('updated_checkout', function() {
                     toggleTinBadge();
                 });
+
+                // Checkout block: react to address changes in the cart store
+                if (window.wp && wp.data && wp.data.subscribe && wp.data.select('wc/store/cart')) {
+                    var lastCountry = getBlockCheckoutCountry();
+                    wp.data.subscribe(function() {
+                        var country = getBlockCheckoutCountry();
+                        if (country !== lastCountry) {
+                            lastCountry = country;
+                            toggleTinBadge();
+                        }
+                    });
+                }
             });
         })(jQuery);";
         

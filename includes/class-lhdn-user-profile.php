@@ -372,6 +372,15 @@ class LHDN_User_Profile {
     }
 
     /**
+     * Show TIN status badge above the Checkout block (woocommerce_before_checkout_form is classic-only)
+     */
+    public function prepend_tin_status_badge_to_checkout_block($block_content) {
+        ob_start();
+        $this->show_tin_status_badge();
+        return ob_get_clean() . $block_content;
+    }
+
+    /**
      * Show TIN status badge on checkout
      */
     public function show_tin_status_badge() {

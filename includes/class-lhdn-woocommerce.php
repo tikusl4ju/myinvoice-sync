@@ -407,6 +407,20 @@ class LHDN_WooCommerce {
     }
 
     /**
+     * Display LHDN column content on the legacy (posts-based) orders screen
+     */
+    public function legacy_orders_list_column_content($column, $post_id) {
+        if ($column !== 'lhdn') {
+            return;
+        }
+
+        $order = wc_get_order($post_id);
+        if ($order && !is_a($order, 'WC_Order_Refund')) {
+            $this->orders_list_column_content($column, $order);
+        }
+    }
+
+    /**
      * Display LHDN column content
      */
     public function orders_list_column_content($column, $order) {
@@ -715,7 +729,39 @@ class LHDN_WooCommerce {
         if (isset($_POST['billing_country']) && !empty($_POST['billing_country'])) {
             $billing_country = sanitize_text_field(wp_unslash($_POST['billing_country']));
         }
-        
+
+        $message = $this->get_checkout_tin_error($billing_country);
+        if ($message !== '') {
+            wc_add_notice($message, 'error');
+        }
+    }
+
+    /**
+     * Validate TIN during block (Store API) checkout.
+     * woocommerce_checkout_process does not fire for the Checkout block.
+     *
+     * @param WC_Order        $order   Order being placed.
+     * @param WP_REST_Request $request Store API checkout request.
+     */
+    public function validate_tin_on_block_checkout($order, $request) {
+        $message = $this->get_checkout_tin_error($order->get_billing_country());
+        if ($message === '') {
+            return;
+        }
+
+        if (class_exists(\Automattic\WooCommerce\StoreApi\Exceptions\RouteException::class)) {
+            throw new \Automattic\WooCommerce\StoreApi\Exceptions\RouteException('lhdn_tin_required', $message, 400);
+        }
+    }
+
+    /**
+     * Get the TIN enforcement error message for the current checkout, or '' if checkout may proceed.
+     *
+     * @param string $billing_country Billing country from the checkout request, if known.
+     */
+    private function get_checkout_tin_error($billing_country = '') {
+        $billing_country = is_string($billing_country) ? $billing_country : '';
+
         // Fallback to WooCommerce customer object
         if (empty($billing_country) && function_exists('WC') && WC()->customer) {
             $billing_country = WC()->customer->get_billing_country();
@@ -732,7 +778,7 @@ class LHDN_WooCommerce {
         // Only enforce TIN for Malaysian users (MY)
         // If country is set and not Malaysia, skip TIN enforcement
         if (!empty($billing_country) && $billing_country !== 'MY') {
-            return;
+            return '';
         }
         
         // Check if TIN Enforce setting is enabled
@@ -747,47 +793,40 @@ class LHDN_WooCommerce {
         
         // Only check if TIN Enforce is enabled OR cart total exceeds 10,000
         if (!$tin_enforce_enabled && $cart_total <= 10000) {
-            return;
+            return '';
         }
 
         // If user is not logged in, block checkout when enforcement applies
         if (!is_user_logged_in()) {
             if (!$tin_enforce_enabled && $cart_total > 10000) {
                 // Guest, high-value purchase
-                wc_add_notice(
-                    __('Your purchase total exceeds 10,000 MYR. Please create an account and complete the TIN verification in your profile before checkout.', 'myinvoice-sync'),
-                    'error'
-                );
-            } elseif ($tin_enforce_enabled) {
-                // Global TIN enforcement, guest checkout
-                wc_add_notice(
-                    __('Please create an account and complete the TIN verification in your profile before checkout.', 'myinvoice-sync'),
-                    'error'
-                );
+                return __('Your purchase total exceeds 10,000 MYR. Please create an account and complete the TIN verification in your profile before checkout.', 'myinvoice-sync');
             }
-            return;
+
+            // Global TIN enforcement, guest checkout
+            return __('Please create an account and complete the TIN verification in your profile before checkout.', 'myinvoice-sync');
         }
 
         $user_id = get_current_user_id();
         if (!$user_id) {
-            return;
+            return '';
         }
 
         // Check if user has valid TIN
         $tin_validation_status = get_user_meta($user_id, 'lhdn_tin_validation', true);
         
-        if ($tin_validation_status !== 'valid') {
-            // Choose message based on why enforcement is happening
-            if (!$tin_enforce_enabled && $cart_total > 10000) {
-                // Enforcement due to high cart total
-                $message = __('Your purchase total exceeds 10,000 MYR. You need to complete the TIN verification in your profile before checkout.', 'myinvoice-sync');
-            } else {
-                // Enforcement due to global TIN Enforce setting
-                $message = __('You would need to complete the TIN verification in your profile before checkout.', 'myinvoice-sync');
-            }
-
-            wc_add_notice($message, 'error');
+        if ($tin_validation_status === 'valid') {
+            return '';
         }
+
+        // Choose message based on why enforcement is happening
+        if (!$tin_enforce_enabled && $cart_total > 10000) {
+            // Enforcement due to high cart total
+            return __('Your purchase total exceeds 10,000 MYR. You need to complete the TIN verification in your profile before checkout.', 'myinvoice-sync');
+        }
+
+        // Enforcement due to global TIN Enforce setting
+        return __('You would need to complete the TIN verification in your profile before checkout.', 'myinvoice-sync');
     }
 }
 

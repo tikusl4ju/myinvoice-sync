@@ -76,12 +76,13 @@ class LHDN_Helpers {
      * Code 17 is reserved for consolidated invoices only; using it on a normal / e-commerce
      * document triggers API error CV317 ("State Codes 17 should be used for Consolidated Invoice only - Buyer").
      *
-     * @param string $wc_state WooCommerce state key (e.g. SL, WP) or empty if unknown.
+     * @param string $wc_state WooCommerce state key (e.g. SGR, KUL) or plugin state key (e.g. SL, WP), or empty if unknown.
      * @param bool   $for_consolidated_invoice When true, unknown states map to 17 (Not Applicable).
      */
     public static function wc_state_to_lhdn($wc_state, $for_consolidated_invoice = true) {
         $states = self::get_state_options();
-        $wc_state = is_string($wc_state) ? $wc_state : '';
+        $wc_state = is_string($wc_state) ? strtoupper(trim($wc_state)) : '';
+        $wc_state = self::get_wc_state_aliases()[$wc_state] ?? $wc_state;
 
         if ($wc_state !== '' && isset($states[$wc_state])) {
             $code = $states[$wc_state]['code'];
@@ -97,6 +98,31 @@ class LHDN_Helpers {
         }
 
         return self::lhdn_state_code_fallback_non_consolidated();
+    }
+
+    /**
+     * WooCommerce core Malaysian state keys (billing_state / shipping_state) mapped to
+     * the plugin's internal state keys used by get_state_options().
+     */
+    private static function get_wc_state_aliases() {
+        return [
+            'JHR' => 'JH',
+            'KDH' => 'KD',
+            'KTN' => 'KT',
+            'MLK' => 'ML',
+            'NSN' => 'NS',
+            'PHG' => 'PH',
+            'PNG' => 'PG',
+            'PRK' => 'PK',
+            'PLS' => 'PL',
+            'SGR' => 'SL',
+            'TRG' => 'TR',
+            'SBH' => 'SB',
+            'SWK' => 'SR',
+            'KUL' => 'WP',
+            'LBN' => 'LB',
+            'PJY' => 'PJ',
+        ];
     }
 
     /**

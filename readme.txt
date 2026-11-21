@@ -3,7 +3,7 @@
 Contributors: nadzree
 Tags: lhdn, myinvoice, myinvois, einvoice, woocommerce
 Requires at least: 5.0
-Tested up to: 6.9
+Tested up to: 7.1
 Stable tag: 2.1.2
 Requires PHP: 7.4
 License: GPLv2 or later
@@ -37,7 +37,7 @@ Key features:
 Requirements:
 
 * WordPress 5.0 or higher
-* WooCommerce 3.0 or higher (for store integration)
+* WooCommerce 7.1 or higher (for store integration)
 * PHP 7.4 or higher
 * Valid LHDN MyInvois API credentials
 
