@@ -1400,6 +1400,7 @@ class LHDN_Admin {
             LHDN_Settings::set('show_tin_badge', isset($data['show_tin_badge']) ? '1' : '0');
             LHDN_Settings::set('show_receipt', isset($data['show_receipt']) ? '1' : '0');
             LHDN_Settings::set('exclude_wallet', isset($data['exclude_wallet']) ? '1' : '0');
+            LHDN_Settings::set('buyer_from_order_billing', isset($data['buyer_from_order_billing']) ? '1' : '0');
             LHDN_Settings::set('tin_enforce', isset($data['tin_enforce']) ? '1' : '0');
             
             // Save custom order statuses (comma-separated) with validation
@@ -1453,7 +1454,7 @@ class LHDN_Admin {
                 if (in_array($k, $invalid_fields)) continue;
                 
                 // Skip fields that are always saved separately
-                if (in_array($k, ['environment', 'api_host', 'host', 'seller_country', 'ubl_version', 'debug_enabled', 'show_tin_badge', 'show_receipt', 'exclude_wallet', 'tin_enforce', 'custom_order_statuses'])) continue;
+                if (in_array($k, ['environment', 'api_host', 'host', 'seller_country', 'ubl_version', 'debug_enabled', 'show_tin_badge', 'show_receipt', 'exclude_wallet', 'buyer_from_order_billing', 'tin_enforce', 'custom_order_statuses'])) continue;
                 
                 // Check if this is a critical setting and if it changed
                 if (in_array($k, $test_relevant_settings)) {
@@ -1524,6 +1525,7 @@ class LHDN_Admin {
             'show_tin_badge'    => 'Show TIN Badge',
             'show_receipt'      => 'Show Receipt',
             'exclude_wallet'    => 'Exclude Wallet',
+            'buyer_from_order_billing' => 'Buyer Details Source',
             'tin_enforce'       => 'TIN Enforce',
             'custom_order_statuses' => 'Custom Order Statuses',
             'ubl_version'       => 'UBL Version',
@@ -1893,6 +1895,16 @@ class LHDN_Admin {
                                                <?php echo checked(LHDN_Settings::get('exclude_wallet', '1'), '1', false); ?>>
                                         Exclude orders with wallet payment method from LHDN submission
                                     </label>
+                                <?php elseif ($key === 'buyer_from_order_billing'): ?>
+                                    <label>
+                                        <input type="checkbox"
+                                               name="lhdn[buyer_from_order_billing]"
+                                               value="1"
+                                               <?php echo checked(LHDN_Settings::get('buyer_from_order_billing', '0'), '1', false); ?>>
+                                        Use WooCommerce Order Billing Details as Buyer Information
+                                    </label>
+                                    <br />
+                                    <p class="description">When enabled, the buyer name, address, phone and email sent to LHDN come from the order's Billing details (falling back to the customer profile only when empty). The Shipping address is never used as the buyer. Buyer TIN/ID still comes from the customer's validated profile. Recommended for agent/dropship stores.</p>
                                 <?php elseif ($key === 'tin_enforce'): ?>
                                     <label>
                                         <input type="checkbox"

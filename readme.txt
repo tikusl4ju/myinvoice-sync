@@ -4,7 +4,7 @@ Contributors: nadzree
 Tags: lhdn, myinvoice, myinvois, einvoice, woocommerce
 Requires at least: 5.0
 Tested up to: 7.1
-Stable tag: 2.1.3
+Stable tag: 2.1.4
 Requires PHP: 7.4
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
@@ -117,6 +117,11 @@ Yes. You can switch between Sandbox and Production in the plugin settings. API/p
 
 == Changelog ==
 
+= 2.1.4 =
+* New setting "Use WooCommerce Order Billing Details as Buyer Information": buyer name, address, phone and email are taken from the order Billing details (profile only as fallback) and the Shipping address is never used as the buyer. Useful for agent/dropship stores. Off by default.
+* Buyer TIN/ID continues to use the customer's validated profile TIN.
+* Invoices, credit notes, refund notes and resubmissions now share one buyer-details routine.
+
 = 2.1.3 =
 * Map WooCommerce Malaysian state codes (e.g. SGR, JHR, KUL) to the correct LHDN state codes; previously buyer states fell back to the seller state.
 * Enforce TIN verification on the WooCommerce Checkout block and show the TIN status badge there.
@@ -140,6 +145,9 @@ Yes. You can switch between Sandbox and Production in the plugin settings. API/p
 * Maintenance and compatibility updates.
 
 == Upgrade Notice ==
+
+= 2.1.4 =
+Adds an option to use the WooCommerce order Billing details as the e-Invoice buyer (for agent/dropship stores). Off by default; no change unless enabled.
 
 = 2.1.3 =
 Fixes buyer state codes for WooCommerce addresses and enforces TIN verification on the block checkout. Adds WooCommerce HPOS compatibility.
